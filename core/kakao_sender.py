@@ -235,14 +235,13 @@ class KakaoSender:
         return result
 
     def _safe_type_text(self, text: str):
-        """안전한 텍스트 입력 (한글 지원)"""
+        """안전한 텍스트 입력 (한글 지원) - 클립보드 복사 → 붙여넣기"""
         try:
             _debug_log(f"type_text 시작: '{text[:30]}'")
             if self.is_mac:
                 import subprocess
                 import os
 
-                # 1. 클립보드에 복사 (os 환경변수 유지)
                 env = os.environ.copy()
                 env["LANG"] = "en_US.UTF-8"
                 proc = subprocess.run(
@@ -252,8 +251,6 @@ class KakaoSender:
                 _debug_log(f"pbcopy rc={proc.returncode}")
                 time.sleep(0.1)
 
-                # 2. 검색창에 포커스가 있는 상태에서 바로 Cmd+V
-                #    (AppleScript activate 하지 않음 - 이미 클릭으로 포커스 잡혀있음)
                 from Quartz import (
                     CGEventCreateKeyboardEvent,
                     CGEventSetFlags,
@@ -261,26 +258,34 @@ class KakaoSender:
                     kCGHIDEventTap,
                     kCGEventFlagMaskCommand,
                 )
-
-                # Cmd+V: keycode 9 = 'v'
-                # key down
                 event = CGEventCreateKeyboardEvent(None, 9, True)
                 CGEventSetFlags(event, kCGEventFlagMaskCommand)
                 CGEventPost(kCGHIDEventTap, event)
                 time.sleep(0.05)
-                # key up
                 event = CGEventCreateKeyboardEvent(None, 9, False)
                 CGEventSetFlags(event, kCGEventFlagMaskCommand)
                 CGEventPost(kCGHIDEventTap, event)
-
                 _debug_log("type_text: Quartz Cmd+V 완료")
             else:
-                import subprocess
-                process = subprocess.Popen(
-                    ["clip"], stdin=subprocess.PIPE
-                )
-                process.communicate(text.encode("utf-16le"))
+                # Windows: win32clipboard으로 클립보드 복사 → Ctrl+V
+                try:
+                    import win32clipboard
+                    win32clipboard.OpenClipboard()
+                    win32clipboard.EmptyClipboard()
+                    win32clipboard.SetClipboardText(text, win32clipboard.CF_UNICODETEXT)
+                    win32clipboard.CloseClipboard()
+                    _debug_log("type_text: win32clipboard 복사 완료")
+                except ImportError:
+                    # win32clipboard 없으면 subprocess clip 사용
+                    import subprocess
+                    process = subprocess.Popen(
+                        ["clip"], stdin=subprocess.PIPE
+                    )
+                    process.communicate(text.encode("utf-16le"))
+                    _debug_log("type_text: clip 명령어 복사 완료")
+                time.sleep(0.2)
                 pyautogui.hotkey("ctrl", "v")
+                _debug_log("type_text: Ctrl+V 완료")
             time.sleep(0.5)
         except pyautogui.FailSafeException:
             raise SafetyError("긴급 정지! (텍스트 입력 중)")
@@ -406,9 +411,16 @@ class KakaoSender:
         _debug_log(f"search_input 좌표: ({coord.get('x')}, {coord.get('y')})")
         self._safe_click(coord["x"], coord["y"])
         self._human_delay(0.3, 0.7)
-        _debug_log("search_input 클릭 완료, clear_input 시작")
-        self._safe_clear_input()
-        _debug_log("clear_input 완료, type_text 시작")
+
+        # 2번째 이후 검색이면 기존 텍스트 지우기 (첫 검색은 빈 상태)
+        if self._send_count > 0:
+            _debug_log("search_input 클릭 완료, clear_input 시작 (2번째 이후)")
+            self._safe_clear_input()
+            _debug_log("clear_input 완료")
+        else:
+            _debug_log("search_input 클릭 완료 (첫 검색, clear 생략)")
+
+        _debug_log("type_text 시작")
         self._safe_type_text(name)
         _debug_log("type_text 완료, 검색 결과 대기 중...")
         self._human_delay(1.2, 2.0)

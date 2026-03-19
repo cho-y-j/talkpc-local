@@ -665,13 +665,24 @@ class SettingsPage(ctk.CTkFrame):
         self.kakao_margin_r = self._create_setting_row(kakao_card, "우측 여백 (px)", "20")
         self.kakao_margin_t = self._create_setting_row(kakao_card, "상단 여백 (px)", "40")
 
+        kakao_btn_frame = ctk.CTkFrame(kakao_card, fg_color="transparent")
+        kakao_btn_frame.pack(fill="x", padx=16, pady=(8, 16))
+
         ctk.CTkButton(
-            kakao_card, text="카카오톡 자동 배치",
+            kakao_btn_frame, text="📐 카카오톡 자동 배치",
             font=(T.get_font_family(), T.FONT_SIZE_BODY),
             fg_color=T.BG_HOVER, hover_color=T.BORDER,
             text_color=T.TEXT_PRIMARY, height=36, corner_radius=6,
             command=self._position_kakao
-        ).pack(padx=16, pady=(8, 16))
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            kakao_btn_frame, text="💾 카카오톡 위치 저장",
+            font=(T.get_font_family(), T.FONT_SIZE_BODY),
+            fg_color="#2ea043", hover_color="#3fb950",
+            text_color=T.TEXT_PRIMARY, height=36, corner_radius=6,
+            command=self._save_kakao_position
+        ).pack(side="left")
 
         # ── 발송 설정 ──
         send_card = self._create_card(scroll, "🚀 발송 설정")
@@ -1027,6 +1038,23 @@ class SettingsPage(ctk.CTkFrame):
             messagebox.showinfo("완료", "카카오톡 창 배치 완료.")
         else:
             messagebox.showwarning("실패", "수동으로 배치해주세요.")
+
+    def _save_kakao_position(self):
+        if not self.orchestrator:
+            return
+        if not self.orchestrator.window_ctrl.find_kakao_window():
+            messagebox.showerror("오류", "카카오톡이 실행 중이 아닙니다.\n원하는 위치에 배치 후 저장하세요.")
+            return
+        saved = self.orchestrator.window_ctrl.save_current_kakao_position()
+        if saved:
+            rect = self.orchestrator.window_ctrl.kakao_rect
+            messagebox.showinfo("위치 저장 완료",
+                f"카카오톡 창 위치가 저장되었습니다.\n\n"
+                f"위치: ({rect['x']}, {rect['y']})\n"
+                f"크기: {rect['width']}x{rect['height']}\n\n"
+                f"다음부터 이 위치로 자동 배치됩니다.")
+        else:
+            messagebox.showwarning("실패", "카카오톡 위치 저장에 실패했습니다.")
 
     # ── 공통 UI ──
 

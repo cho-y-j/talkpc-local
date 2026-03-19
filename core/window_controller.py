@@ -75,7 +75,14 @@ class WindowController:
         }
 
     def calculate_kakao_position(self) -> dict:
-        """카카오톡 창 최적 위치/크기 계산 - 우측 상단 고정"""
+        """카카오톡 창 위치/크기 결정 - 저장된 위치 우선, 없으면 우측 상단"""
+        # 저장된 위치가 있으면 사용
+        saved = self._load_saved_position()
+        if saved:
+            self.kakao_rect = saved
+            return self.kakao_rect
+
+        # 없으면 자동 계산 (우측 상단)
         kakao_w = self.config.get("kakao_window", {}).get("width", 420)
         kakao_h = self.config.get("kakao_window", {}).get("height", 700)
         margin_right = self.config.get("kakao_window", {}).get("margin_right", 20)
@@ -84,6 +91,14 @@ class WindowController:
         kakao_x = self.screen_width - kakao_w - margin_right
         kakao_y = margin_top
 
+        # 화면 밖으로 나가지 않게 보정
+        if kakao_x + kakao_w > self.screen_width:
+            kakao_x = self.screen_width - kakao_w - 10
+        if kakao_x < 0:
+            kakao_x = 10
+        if kakao_y + kakao_h > self.screen_height:
+            kakao_h = self.screen_height - kakao_y - 50
+
         self.kakao_rect = {
             "x": kakao_x,
             "y": kakao_y,
@@ -91,6 +106,79 @@ class WindowController:
             "height": kakao_h
         }
         return self.kakao_rect
+
+    def save_current_kakao_position(self) -> bool:
+        """현재 카카오톡 창 위치를 감지하여 저장"""
+        rect = self._get_current_kakao_rect()
+        if not rect:
+            return False
+        self.kakao_rect = rect
+        self._save_position(rect)
+        return True
+
+    def _get_current_kakao_rect(self) -> dict:
+        """현재 카카오톡 창의 실제 위치/크기 가져오기"""
+        if self.system == "Darwin":
+            try:
+                script = '''
+                tell application "System Events"
+                    tell process "KakaoTalk"
+                        set p to position of window 1
+                        set s to size of window 1
+                        return (item 1 of p) & "," & (item 2 of p) & "," & (item 1 of s) & "," & (item 2 of s)
+                    end tell
+                end tell
+                '''
+                result = subprocess.run(["osascript", "-e", script],
+                                       capture_output=True, text=True, timeout=5)
+                parts = result.stdout.strip().split(",")
+                if len(parts) == 4:
+                    return {
+                        "x": int(parts[0].strip()),
+                        "y": int(parts[1].strip()),
+                        "width": int(parts[2].strip()),
+                        "height": int(parts[3].strip())
+                    }
+            except Exception:
+                pass
+        elif self.system == "Windows":
+            try:
+                import win32gui
+                def callback(hwnd, results):
+                    if win32gui.IsWindowVisible(hwnd):
+                        title = win32gui.GetWindowText(hwnd)
+                        if self._is_kakao_window(title):
+                            results.append(hwnd)
+                results = []
+                win32gui.EnumWindows(callback, results)
+                if results:
+                    rect = win32gui.GetWindowRect(results[0])
+                    return {
+                        "x": rect[0], "y": rect[1],
+                        "width": rect[2] - rect[0],
+                        "height": rect[3] - rect[1]
+                    }
+            except Exception:
+                pass
+        return None
+
+    def _save_position(self, rect: dict):
+        """카카오톡 창 위치를 파일로 저장"""
+        save_path = Path(os.path.dirname(os.path.dirname(__file__))) / "config" / "kakao_position.json"
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(save_path, "w", encoding="utf-8") as f:
+            json.dump(rect, f, indent=2)
+
+    def _load_saved_position(self) -> dict:
+        """저장된 카카오톡 창 위치 불러오기"""
+        save_path = Path(os.path.dirname(os.path.dirname(__file__))) / "config" / "kakao_position.json"
+        if save_path.exists():
+            try:
+                with open(save_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return None
 
     def find_kakao_window(self) -> bool:
         """카카오톡 창이 열려있는지 확인"""

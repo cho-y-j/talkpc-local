@@ -99,6 +99,15 @@ class DashboardPage(ctk.CTkFrame):
         ).pack(side="left", padx=(0, 8))
 
         ctk.CTkButton(
+            btn_frame, text="💾 카카오톡 위치 저장",
+            font=(T.get_font_family(), T.FONT_SIZE_BODY),
+            fg_color="#2ea043", hover_color="#3fb950",
+            text_color=T.TEXT_PRIMARY,
+            height=T.BUTTON_HEIGHT, corner_radius=6,
+            command=self._on_save_kakao_position
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
             btn_frame, text="📋 엑셀 가져오기",
             font=(T.get_font_family(), T.FONT_SIZE_BODY),
             fg_color=T.BG_HOVER, hover_color=T.BORDER,
@@ -272,6 +281,33 @@ class DashboardPage(ctk.CTkFrame):
             )
         else:
             self.log_panel.add_log("카카오톡 자동 배치 실패", "error")
+
+    def _on_save_kakao_position(self):
+        """현재 카카오톡 창 위치를 감지하여 저장"""
+        if not self.orchestrator:
+            return
+        if not self.orchestrator.window_ctrl.find_kakao_window():
+            self.log_panel.add_log("카카오톡이 실행되어 있지 않습니다!", "error")
+            from tkinter import messagebox
+            messagebox.showwarning("카카오톡 없음",
+                "카카오톡 PC를 먼저 실행하고\n원하는 위치에 배치한 후 저장하세요.")
+            return
+
+        saved = self.orchestrator.window_ctrl.save_current_kakao_position()
+        if saved:
+            rect = self.orchestrator.window_ctrl.kakao_rect
+            self.log_panel.add_log(
+                f"카카오톡 위치 저장 완료! ({rect['x']}, {rect['y']}) "
+                f"{rect['width']}x{rect['height']}", "success"
+            )
+            from tkinter import messagebox
+            messagebox.showinfo("위치 저장 완료",
+                f"카카오톡 창 위치가 저장되었습니다.\n\n"
+                f"위치: ({rect['x']}, {rect['y']})\n"
+                f"크기: {rect['width']}x{rect['height']}\n\n"
+                f"다음부터 이 위치로 자동 배치됩니다.")
+        else:
+            self.log_panel.add_log("카카오톡 위치 저장 실패", "error")
 
     def _on_import_excel(self):
         from tkinter import filedialog, messagebox

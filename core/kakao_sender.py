@@ -321,9 +321,13 @@ class KakaoSender:
                 self._quartz_key(51)
                 _debug_log("clear_input: Quartz Cmd+A → Delete 완료")
             else:
-                pyautogui.hotkey("ctrl", "a")
-                time.sleep(0.2)
+                # Windows: Home → Shift+End → Delete (Ctrl+A가 친구추가 단축키와 충돌)
+                pyautogui.press("home")
+                time.sleep(0.1)
+                pyautogui.hotkey("shift", "end")
+                time.sleep(0.1)
                 pyautogui.press("delete")
+                _debug_log("clear_input: Home → Shift+End → Delete 완료")
             time.sleep(0.3)
         except pyautogui.FailSafeException:
             raise SafetyError("긴급 정지! (입력 삭제 중)")

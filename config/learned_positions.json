@@ -1,0 +1,37 @@
+{
+  "search_icon": {
+    "x": 1589,
+    "y": 65,
+    "description": "Step 1/7: 돋보기(검색) 아이콘"
+  },
+  "search_input": {
+    "x": 1394,
+    "y": 113,
+    "description": "Step 2/7: 검색 입력창"
+  },
+  "first_result": {
+    "x": 1463,
+    "y": 167,
+    "description": "Step 3/7: 검색 결과 클릭"
+  },
+  "message_input": {
+    "x": 1335,
+    "y": 652,
+    "description": "Step 4/7: 메시지 입력창"
+  },
+  "send_enter": {
+    "x": 1601,
+    "y": 717,
+    "description": "Step 5/7: 보내기(전송) 버튼"
+  },
+  "image_send": {
+    "x": 1529,
+    "y": 546,
+    "description": "Step 6/7: 이미지 전송 버튼"
+  },
+  "back_button": {
+    "x": 1254,
+    "y": 56,
+    "description": "Step 7/7: 뒤로가기/닫기"
+  }
+}

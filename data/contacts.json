@@ -1,0 +1,20 @@
+{
+  "contacts": [
+    {
+      "id": "안덕현_20260319104203",
+      "name": "안덕현",
+      "category": "other",
+      "phone": "",
+      "company": "",
+      "position": "",
+      "memo": "",
+      "birthday": "",
+      "anniversary": "",
+      "created_at": "2026-03-19T10:42:03.374638",
+      "last_sent": "2026-03-19T10:47:09.000133",
+      "send_count": 2
+    }
+  ],
+  "custom_categories": [],
+  "last_updated": "2026-03-19T10:47:09.000989"
+}

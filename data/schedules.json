@@ -1,0 +1,10 @@
+{
+  "jobs": [],
+  "auto_send": {
+    "enabled": false,
+    "birthday_template_id": "",
+    "anniversary_template_id": "",
+    "send_hour": 9,
+    "send_minute": 0
+  }
+}

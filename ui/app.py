@@ -21,8 +21,8 @@ class App(ctk.CTk):
         self.orchestrator = orchestrator
 
         self.title("TalkPC Local - 카카오톡 자동 발송")
-        self.geometry("1200x850")
-        self.minsize(1000, 700)
+        self.geometry("1200x1000")
+        self.minsize(1000, 850)
         self.configure(fg_color=T.BG_DARK)
 
         ctk.set_appearance_mode("dark")

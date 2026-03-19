@@ -19,11 +19,11 @@ jobs:
       - name: Install dependencies
         run: |
           pip install pyinstaller
-          pip install customtkinter pyautogui pytesseract Pillow openpyxl
+          pip install customtkinter pyautogui pytesseract Pillow openpyxl python-dotenv
 
       - name: Build exe
         run: |
-          pyinstaller --onefile --windowed --name "TalkPC" --add-data "config;config" --add-data "ui;ui" --hidden-import customtkinter main.py
+          pyinstaller --onefile --windowed --name "TalkPC" --add-data "config;config" --hidden-import customtkinter --hidden-import PIL --hidden-import openpyxl --collect-all customtkinter main.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -44,11 +44,11 @@ jobs:
       - name: Install dependencies
         run: |
           pip install pyinstaller
-          pip install customtkinter pyautogui pytesseract Pillow openpyxl pyobjc-framework-Quartz
+          pip install customtkinter pyautogui pytesseract Pillow openpyxl python-dotenv pyobjc-framework-Quartz
 
       - name: Build app
         run: |
-          pyinstaller --onefile --windowed --name "TalkPC" --add-data "config:config" --add-data "ui:ui" --hidden-import customtkinter main.py
+          pyinstaller --onefile --windowed --name "TalkPC" --add-data "config:config" --hidden-import customtkinter --hidden-import PIL --hidden-import openpyxl --collect-all customtkinter main.py
 
       - name: Zip app
         run: |

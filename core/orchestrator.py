@@ -11,7 +11,10 @@ from pathlib import Path
 from datetime import datetime
 from typing import Callable, Optional
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
 
 from core.window_controller import WindowController
 from core.screen_capture import ScreenCapture
@@ -21,7 +24,11 @@ from core.message_engine import MessageEngine
 from core.kakao_sender import KakaoSender, SendResult
 from core.report_generator import ReportGenerator
 from core.scheduler import Scheduler
-from core.sejong_sender import SejongSender, SejongConfig, SejongSendResult
+
+try:
+    from core.sejong_sender import SejongSender, SejongConfig, SejongSendResult
+except ImportError:
+    SejongSender = None
 
 
 class OrchestratorState:
@@ -86,7 +93,7 @@ class Orchestrator:
         """설정 파일 로드 + .env 환경변수 병합"""
         # .env 로드
         env_path = self.base_dir / ".env"
-        if env_path.exists():
+        if env_path.exists() and load_dotenv:
             load_dotenv(env_path)
 
         config_path = self.base_dir / "config" / "default_config.json"

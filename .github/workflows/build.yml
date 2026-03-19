@@ -1,0 +1,104 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller
+          pip install customtkinter pyautogui pytesseract Pillow openpyxl
+
+      - name: Build exe
+        run: |
+          pyinstaller --onefile --windowed --name "TalkPC" --add-data "config;config" --add-data "ui;ui" --hidden-import customtkinter main.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TalkPC-Windows
+          path: dist/TalkPC.exe
+
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller
+          pip install customtkinter pyautogui pytesseract Pillow openpyxl pyobjc-framework-Quartz
+
+      - name: Build app
+        run: |
+          pyinstaller --onefile --windowed --name "TalkPC" --add-data "config:config" --add-data "ui:ui" --hidden-import customtkinter main.py
+
+      - name: Zip app
+        run: |
+          cd dist
+          zip -r TalkPC-Mac.zip TalkPC.app 2>/dev/null || zip TalkPC-Mac.zip TalkPC
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TalkPC-Mac
+          path: dist/TalkPC-Mac.zip
+
+  release:
+    needs: [build-windows, build-mac]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: TalkPC-Windows
+          path: ./release
+
+      - name: Download Mac artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: TalkPC-Mac
+          path: ./release
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: TalkPC ${{ github.ref_name }}
+          body: |
+            ## TalkPC Local ${{ github.ref_name }}
+
+            카카오톡 자동 발송 프로그램
+
+            ### 다운로드
+            - **Windows**: `TalkPC.exe` 다운로드 후 바로 실행
+            - **Mac**: `TalkPC-Mac.zip` 다운로드 → 압축 해제 → 실행
+
+            ### 주요 기능
+            - 카카오톡 PC 오토마우스 자동 발송
+            - 연락처 관리 (엑셀 가져오기/내보내기)
+            - 메시지 디자이너 (변수 치환, 다변형 랜덤)
+            - 이미지 첨부 발송
+            - 예약 발송
+            - 마우스 이동 감지 안전장치
+          files: |
+            ./release/TalkPC.exe
+            ./release/TalkPC-Mac.zip

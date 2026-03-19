@@ -21,6 +21,8 @@ class WindowController:
     KAKAO_APP_NAME_MAC = "KakaoTalk"
     KAKAO_APP_NAME_WIN = "카카오톡"
     KAKAO_WINDOW_TITLE_WIN = "카카오톡"
+    # 우리 앱 창을 카카오톡으로 오인하지 않기 위한 제외 키워드
+    EXCLUDE_TITLES = ["TalkPC", "Auto Messenger", "자동 발송"]
 
     def __init__(self, config: dict = None):
         self.system = platform.system()  # "Darwin" (Mac) or "Windows"
@@ -119,6 +121,15 @@ class WindowController:
         except Exception:
             return False
 
+    def _is_kakao_window(self, title: str) -> bool:
+        """카카오톡 창인지 판별 (우리 앱 제외)"""
+        if self.KAKAO_WINDOW_TITLE_WIN not in title:
+            return False
+        for exclude in self.EXCLUDE_TITLES:
+            if exclude in title:
+                return False
+        return True
+
     def _find_kakao_win(self) -> bool:
         """Windows에서 카카오톡 창 확인"""
         try:
@@ -127,17 +138,17 @@ class WindowController:
             def callback(hwnd, results):
                 if win32gui.IsWindowVisible(hwnd):
                     title = win32gui.GetWindowText(hwnd)
-                    if self.KAKAO_WINDOW_TITLE_WIN in title:
+                    if self._is_kakao_window(title):
                         results.append(hwnd)
 
             results = []
             win32gui.EnumWindows(callback, results)
             return len(results) > 0
         except ImportError:
-            # win32gui 없으면 pyautogui로 대체
             try:
                 import pygetwindow as gw
-                windows = gw.getWindowsWithTitle(self.KAKAO_WINDOW_TITLE_WIN)
+                windows = [w for w in gw.getWindowsWithTitle(self.KAKAO_WINDOW_TITLE_WIN)
+                           if self._is_kakao_window(w.title)]
                 return len(windows) > 0
             except Exception:
                 return False
@@ -172,7 +183,7 @@ class WindowController:
             def callback(hwnd, results):
                 if win32gui.IsWindowVisible(hwnd):
                     title = win32gui.GetWindowText(hwnd)
-                    if self.KAKAO_WINDOW_TITLE_WIN in title:
+                    if self._is_kakao_window(title):
                         results.append(hwnd)
 
             results = []
@@ -186,7 +197,8 @@ class WindowController:
         except ImportError:
             try:
                 import pygetwindow as gw
-                windows = gw.getWindowsWithTitle(self.KAKAO_WINDOW_TITLE_WIN)
+                windows = [w for w in gw.getWindowsWithTitle(self.KAKAO_WINDOW_TITLE_WIN)
+                           if self._is_kakao_window(w.title)]
                 if windows:
                     windows[0].activate()
                     return True
@@ -240,7 +252,7 @@ class WindowController:
             def callback(hwnd, results):
                 if win32gui.IsWindowVisible(hwnd):
                     title = win32gui.GetWindowText(hwnd)
-                    if self.KAKAO_WINDOW_TITLE_WIN in title:
+                    if self._is_kakao_window(title):
                         results.append(hwnd)
 
             results = []
@@ -254,7 +266,8 @@ class WindowController:
         except ImportError:
             try:
                 import pygetwindow as gw
-                windows = gw.getWindowsWithTitle(self.KAKAO_WINDOW_TITLE_WIN)
+                windows = [w_ for w_ in gw.getWindowsWithTitle(self.KAKAO_WINDOW_TITLE_WIN)
+                           if self._is_kakao_window(w_.title)]
                 if windows:
                     win = windows[0]
                     win.moveTo(x, y)

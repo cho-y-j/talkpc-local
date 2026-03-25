@@ -221,13 +221,38 @@ class Orchestrator:
             "coordinates": self.coordinates
         }
 
+    def auto_detect_coordinates(self) -> dict:
+        """
+        카카오톡 창 위치를 자동 감지하고 디폴트 좌표 계산
+        학습된 좌표 없이도 바로 사용 가능
+        """
+        if not self.window_ctrl.find_kakao_window():
+            return {"success": False, "error": "카카오톡이 실행되어 있지 않습니다."}
+
+        self.window_ctrl.activate_kakao()
+        import time
+        time.sleep(0.5)
+
+        # 실제 카카오톡 창 위치 기반 좌표 자동 계산
+        coords = self.window_ctrl.calculate_ui_coordinates()
+        self.coordinates = coords
+        self._emit_log(f"카카오톡 창 감지: ({self.window_ctrl.kakao_rect['x']}, "
+                       f"{self.window_ctrl.kakao_rect['y']}) "
+                       f"{self.window_ctrl.kakao_rect['width']}x"
+                       f"{self.window_ctrl.kakao_rect['height']}")
+        self._emit_log("디폴트 좌표 자동 계산 완료!")
+        return {"success": True, "coordinates": coords}
+
     def confirm_calibration(self) -> dict:
         """
         캘리브레이션 확인 - 사용자가 스크린샷을 확인한 후 호출
         KakaoSender를 초기화하고 발송 준비 상태로 전환
         """
         if not self.coordinates:
-            return {"success": False, "error": "먼저 초기화를 실행해주세요."}
+            # 학습된 좌표 없으면 자동 계산 시도
+            result = self.auto_detect_coordinates()
+            if not result.get("success"):
+                return {"success": False, "error": "좌표를 설정해주세요."}
 
         # KakaoSender 초기화
         self.sender = KakaoSender(self.coordinates, self.config)

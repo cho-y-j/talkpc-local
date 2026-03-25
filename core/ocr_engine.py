@@ -17,22 +17,45 @@ class OCREngine:
     def __init__(self, language: str = "kor+eng", confidence_threshold: int = 70):
         self.language = language
         self.confidence_threshold = confidence_threshold
+        self.available = False
+        self.tessdata_dir = None
         self._check_tesseract()
 
     def _check_tesseract(self):
-        """Tesseract 설치 확인"""
+        """Tesseract 설치 확인 + 프로젝트 내 tessdata 우선 사용"""
         if pytesseract is None:
-            raise ImportError("pytesseract가 설치되지 않았습니다. pip install pytesseract")
+            return
+
+        import platform
+        import os
+
+        # Windows: 설치 경로 설정
+        if platform.system() == "Windows":
+            tesseract_path = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+            if os.path.exists(tesseract_path):
+                pytesseract.pytesseract.tesseract_cmd = tesseract_path
+
+        # 프로젝트 내 tessdata 확인 (kor.traineddata 포함)
+        project_tessdata = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "config", "tessdata"
+        )
+        if os.path.exists(os.path.join(project_tessdata, "kor.traineddata")):
+            self.tessdata_dir = project_tessdata
+
         try:
             pytesseract.get_tesseract_version()
+            self.available = True
         except Exception:
-            # 일반적인 설치 경로 설정
-            import platform
-            if platform.system() == "Windows":
-                pytesseract.pytesseract.tesseract_cmd = (
-                    r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-                )
-            # Mac: brew install tesseract 후 기본 경로 사용
+            self.available = False
+
+    def _get_config(self, psm: int) -> str:
+        """Tesseract config 문자열 생성 (tessdata 경로 포함)"""
+        config = f"--psm {psm}"
+        if self.tessdata_dir:
+            # 경로를 슬래시로 변환 (Windows 백슬래시 문제 방지)
+            td = self.tessdata_dir.replace("\\", "/")
+            config += f" --tessdata-dir {td}"
+        return config
 
     def preprocess_image(self, image: "Image.Image") -> "Image.Image":
         """OCR 정확도 향상을 위한 이미지 전처리 (다크모드 대응)"""
@@ -64,6 +87,9 @@ class OCREngine:
 
     def extract_text(self, image: "Image.Image", preprocess: bool = True) -> str:
         """이미지에서 텍스트 추출 - 여러 PSM 모드 시도"""
+        if not self.available:
+            return ""
+
         if preprocess:
             image = self.preprocess_image(image)
 
@@ -74,7 +100,7 @@ class OCREngine:
                 text = pytesseract.image_to_string(
                     image,
                     lang=self.language,
-                    config=f"--psm {psm}"
+                    config=self._get_config(psm)
                 ).strip()
                 if len(text) > len(best_text):
                     best_text = text
@@ -84,6 +110,9 @@ class OCREngine:
 
     def extract_text_with_data(self, image: "Image.Image", preprocess: bool = True) -> list:
         """텍스트와 위치/신뢰도 정보 함께 추출"""
+        if not self.available:
+            return []
+
         if preprocess:
             image = self.preprocess_image(image)
 
@@ -94,7 +123,7 @@ class OCREngine:
                 data = pytesseract.image_to_data(
                     image,
                     lang=self.language,
-                    config=f"--psm {psm}",
+                    config=self._get_config(psm),
                     output_type=pytesseract.Output.DICT
                 )
 
@@ -129,6 +158,15 @@ class OCREngine:
                 "position": {"x": int, "y": int}
             }
         """
+        if not self.available:
+            return {
+                "found": False,
+                "matched_text": None,
+                "confidence": 0,
+                "position": None,
+                "error": "Tesseract OCR이 설치되지 않았습니다."
+            }
+
         # 1단계: 신뢰도 높은 결과에서 매칭
         results = self.extract_text_with_data(image)
 
@@ -170,7 +208,7 @@ class OCREngine:
                 data = pytesseract.image_to_data(
                     preprocessed,
                     lang=self.language,
-                    config=f"--psm {psm}",
+                    config=self._get_config(psm),
                     output_type=pytesseract.Output.DICT
                 )
                 all_text = " ".join(

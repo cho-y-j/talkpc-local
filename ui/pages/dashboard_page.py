@@ -204,20 +204,21 @@ class DashboardPage(ctk.CTkFrame):
         if not self.orchestrator:
             return
 
+        # 1. 학습된 좌표 파일이 있으면 사용, 없으면 자동 계산
         positions_path = self.orchestrator.base_dir / "config" / "learned_positions.json"
-        if not positions_path.exists():
-            self.log_panel.add_log("학습된 위치가 없습니다.", "warning")
-            self.log_panel.add_log("설정 → '위치 학습 시작'을 먼저 실행해주세요.", "info")
-            self.stat_status.update_value("미학습", T.WARNING)
-            return
+        use_learned = False
 
-        import json
-        with open(positions_path, "r", encoding="utf-8") as f:
-            positions = json.load(f)
+        if positions_path.exists():
+            import json
+            with open(positions_path, "r", encoding="utf-8") as f:
+                positions = json.load(f)
+            self.log_panel.add_log("저장된 학습 위치 로드 중...")
+            self.orchestrator.coordinates = positions
+            use_learned = True
+        else:
+            self.log_panel.add_log("학습 파일 없음 → 디폴트 좌표 자동 계산 모드")
 
-        self.log_panel.add_log("저장된 위치 로드 중...")
-        self.orchestrator.coordinates = positions
-
+        # 2. 카카오톡 찾기
         if not self.orchestrator.window_ctrl.find_kakao_window():
             self.log_panel.add_log("카카오톡이 실행되어 있지 않습니다!", "error")
             self.stat_status.update_value("오류", T.ERROR)
@@ -228,22 +229,35 @@ class DashboardPage(ctk.CTkFrame):
 
         import time
         time.sleep(0.3)
-        self.orchestrator.window_ctrl.calculate_kakao_position()
-        positioned = self.orchestrator.window_ctrl.position_kakao_window()
-        if positioned:
-            rect = self.orchestrator.window_ctrl.kakao_rect
-            self.log_panel.add_log(
-                f"카카오톡 자동 배치: ({rect['x']}, {rect['y']}) "
-                f"{rect['width']}×{rect['height']}", "success"
-            )
-        else:
-            self.log_panel.add_log("카카오톡 자동 배치 실패. 수동으로 배치해주세요.", "warning")
 
+        # 3. 학습 좌표 없으면 자동 좌표 계산
+        if not use_learned:
+            result = self.orchestrator.auto_detect_coordinates()
+            if result.get("success"):
+                self.log_panel.add_log("카카오톡 창 기반 디폴트 좌표 자동 설정!", "success")
+            else:
+                self.log_panel.add_log(f"자동 좌표 계산 실패: {result.get('error')}", "error")
+                self.stat_status.update_value("오류", T.ERROR)
+                return
+        else:
+            self.orchestrator.window_ctrl.calculate_kakao_position()
+            positioned = self.orchestrator.window_ctrl.position_kakao_window()
+            if positioned:
+                rect = self.orchestrator.window_ctrl.kakao_rect
+                self.log_panel.add_log(
+                    f"카카오톡 자동 배치: ({rect['x']}, {rect['y']}) "
+                    f"{rect['width']}x{rect['height']}", "success"
+                )
+
+        # 4. 발송 준비
         result = self.orchestrator.confirm_calibration()
         if result.get("success"):
             self.log_panel.add_log("초기화 완료! 발송 준비 완료.", "success")
             self.stat_status.update_value("준비", T.SUCCESS)
-            for key, pos in positions.items():
+
+            # 현재 사용 중인 좌표 출력
+            coords = self.orchestrator.coordinates
+            for key, pos in coords.items():
                 if isinstance(pos, dict) and "x" in pos:
                     self.log_panel.add_log(
                         f"  {pos.get('description', key)}: ({pos['x']}, {pos['y']})",

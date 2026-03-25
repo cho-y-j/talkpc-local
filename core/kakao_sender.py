@@ -23,8 +23,9 @@ from core.screen_capture import ScreenCapture
 from core.ocr_engine import OCREngine
 from pathlib import Path
 
-_LOG_PATH = Path("/tmp/kakao_sender_debug.log")
-_OCR_PATH = Path("/tmp/kakao_ocr_capture.png")
+import tempfile
+_LOG_PATH = Path(tempfile.gettempdir()) / "kakao_sender_debug.log"
+_OCR_PATH = Path(tempfile.gettempdir()) / "kakao_ocr_capture.png"
 
 def _debug_log(msg):
     """디버그 로그를 파일에 기록"""
@@ -197,14 +198,34 @@ class KakaoSender:
 
                 _debug_log(f"Quartz 더블클릭: ({x}, {y})")
             else:
-                # 단일 클릭: 사람처럼 곡선 이동
+                # Windows: 사람처럼 곡선 이동 후 클릭
                 self._human_move(x, y)
                 time.sleep(random.uniform(0.05, 0.15))
-                for _ in range(clicks):
+                if clicks >= 2:
+                    # 더블클릭: win32api로 정확한 더블클릭 전송
+                    try:
+                        import win32api
+                        import win32con
+                        # 마우스를 정확한 위치로 이동
+                        win32api.SetCursorPos((x, y))
+                        time.sleep(0.05)
+                        # 첫 번째 클릭
+                        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, x, y, 0, 0)
+                        time.sleep(0.02)
+                        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, x, y, 0, 0)
+                        time.sleep(0.05)
+                        # 두 번째 클릭 (빠르게 → OS가 더블클릭으로 인식)
+                        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, x, y, 0, 0)
+                        time.sleep(0.02)
+                        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, x, y, 0, 0)
+                        _debug_log(f"Windows win32api 더블클릭: ({x}, {y})")
+                    except ImportError:
+                        pyautogui.doubleClick(x, y)
+                        _debug_log(f"Windows pyautogui 더블클릭: ({x}, {y})")
+                else:
                     pyautogui.mouseDown(x, y)
                     time.sleep(random.uniform(0.03, 0.08))
                     pyautogui.mouseUp(x, y)
-                    time.sleep(random.uniform(0.05, 0.15))
 
             self._human_delay(0.2, 0.5)
 
@@ -223,6 +244,38 @@ class KakaoSender:
                 'tell application "KakaoTalk" to activate'
             ], timeout=5)
             time.sleep(0.5)
+        else:
+            # Windows: win32gui로 카카오톡 창 활성화
+            try:
+                import win32gui
+                import win32con
+
+                def callback(hwnd, results):
+                    if win32gui.IsWindowVisible(hwnd):
+                        title = win32gui.GetWindowText(hwnd)
+                        if "카카오톡" in title and "TalkPC" not in title:
+                            results.append(hwnd)
+
+                results = []
+                win32gui.EnumWindows(callback, results)
+                if results:
+                    hwnd = results[0]
+                    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                    try:
+                        win32gui.SetForegroundWindow(hwnd)
+                    except Exception:
+                        import ctypes
+                        ctypes.windll.user32.keybd_event(0x12, 0, 0, 0)
+                        ctypes.windll.user32.keybd_event(0x12, 0, 2, 0)
+                        win32gui.SetForegroundWindow(hwnd)
+                    time.sleep(0.5)
+                    _debug_log("activate_kakao: win32gui 활성화 완료")
+                else:
+                    _debug_log("activate_kakao: 카카오톡 창을 찾을 수 없음")
+            except ImportError:
+                _debug_log("activate_kakao: win32gui 없음, 활성화 생략")
+            except Exception as e:
+                _debug_log(f"activate_kakao: 에러 {e}")
 
     def _run_applescript(self, script: str):
         """AppleScript 실행 (macOS 전용)"""
@@ -429,28 +482,31 @@ class KakaoSender:
     def verify_search_result(self, target_name: str) -> dict:
         """
         OCR로 검색 결과 확인
-        학습된 search_input(2번)과 first_result(3번) 좌표로 검색 결과 영역 캡처
+        3번(first_result) 좌표 주변을 넓게 캡처하여 이름 매칭
         """
         try:
+            if not self.ocr.available:
+                _debug_log("OCR 불가: Tesseract 미설치")
+                return {"found": False, "error": "Tesseract OCR 미설치"}
+
             search_input = self.coords.get("search_input", {})
             first_result = self.coords.get("first_result", {})
 
             if not search_input or not first_result:
                 return {"found": False, "error": "좌표 없음"}
 
-            # 학습된 좌표로 검색 결과 영역 계산
-            si_y = search_input["y"]
             fr_x = first_result["x"]
             fr_y = first_result["y"]
 
-            # search_input 아래 ~ first_result 아래까지 캡처
-            x1 = max(0, fr_x - 100)
-            y1 = si_y + 20
-            x2 = fr_x + 200
-            y2 = fr_y + 40
+            # 3번(first_result) 좌표 중심으로 넓게 캡처
+            # 좌우 150px, 위로 30px, 아래로 50px - 검색 결과 첫 줄 전체 포함
+            x1 = max(0, fr_x - 150)
+            y1 = max(0, fr_y - 30)
+            x2 = fr_x + 250
+            y2 = fr_y + 50
 
             _debug_log(f"OCR 캡처 영역: ({x1},{y1}) ~ ({x2},{y2}) "
-                       f"[search_input_y={si_y}, first_result=({fr_x},{fr_y})]")
+                       f"[first_result=({fr_x},{fr_y})]")
             screenshot = self.capture.capture_region(x1, y1, x2, y2)
 
             # 디버그: 캡처 이미지 저장
@@ -471,19 +527,110 @@ class KakaoSender:
         """첫 번째 검색 결과 더블클릭 (채팅방 진입)"""
         self._check_stop()
         coord = self.coords.get("first_result", {})
-        self._safe_click(coord["x"], coord["y"], clicks=2)
-        self._human_delay(1.2, 2.0)  # 채팅방 열리기 대기
+        x, y = coord["x"], coord["y"]
+        _debug_log(f"click_search_result 시작: ({x}, {y})")
 
-        # macOS: 새로 열린 채팅창을 학습된 위치에 맞게 배치
+        # 카카오톡 활성화 (실패해도 계속 진행)
+        try:
+            self._activate_kakao()
+        except Exception as e:
+            _debug_log(f"click_search_result: 활성화 실패 (무시): {e}")
+        time.sleep(0.3)
+
+        # win32api로 더블클릭
+        try:
+            import win32api
+            import win32con
+            win32api.SetCursorPos((x, y))
+            _debug_log(f"click_search_result: SetCursorPos ({x}, {y})")
+            time.sleep(0.1)
+            # 첫 번째 클릭
+            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+            time.sleep(0.02)
+            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+            time.sleep(0.05)
+            # 두 번째 클릭
+            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+            time.sleep(0.02)
+            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+            _debug_log(f"click_search_result: win32api 더블클릭 완료")
+        except Exception as e:
+            _debug_log(f"click_search_result: win32api 실패 ({e}), pyautogui fallback")
+            pyautogui.click(x, y)
+            time.sleep(0.08)
+            pyautogui.click(x, y)
+            _debug_log(f"click_search_result: pyautogui 더블클릭 완료")
+
+        self._last_mouse_pos = None  # 더블클릭 직후 마우스 이동 감지 초기화
+        self._human_delay(1.5, 2.5)  # 채팅방 열리기 대기
+
+        # 새로 열린 채팅창을 기본 카카오톡 위치로 이동
+        try:
+            self._position_chat_window_to_kakao_pos()
+        except Exception as e:
+            _debug_log(f"click_search_result: 채팅창 배치 실패 (무시): {e}")
+
+        _debug_log("click_search_result: 채팅방 열림 대기 완료")
+
+    def _position_chat_window_to_kakao_pos(self):
+        """
+        더블클릭 후 새로 열린 채팅창을 카카오톡 메인 창 위치로 이동
+        채팅창 제목은 상대 이름이므로 '카카오톡'이 아님 → 포커스된 창을 이동
+        """
         if self.is_mac:
-            self._position_chat_window()
+            return  # Mac은 별도 처리
+
+        try:
+            import win32gui
+            import win32con
+
+            # 1. 현재 포커스된 창 = 방금 열린 채팅창
+            fg_hwnd = win32gui.GetForegroundWindow()
+            fg_title = win32gui.GetWindowText(fg_hwnd)
+            _debug_log(f"채팅창 배치: 포커스 창 = '{fg_title}' (hwnd={fg_hwnd})")
+
+            # 우리 앱이면 무시
+            if "TalkPC" in fg_title or "Auto Messenger" in fg_title:
+                _debug_log("채팅창 배치: 우리 앱이 포커스됨, 건너뜀")
+                return
+
+            # 2. 카카오톡 메인 창 위치 가져오기
+            def find_main_kakao(hwnd, results):
+                if win32gui.IsWindowVisible(hwnd):
+                    title = win32gui.GetWindowText(hwnd)
+                    if title == "카카오톡" and "TalkPC" not in title:
+                        results.append(hwnd)
+
+            main_windows = []
+            win32gui.EnumWindows(find_main_kakao, main_windows)
+
+            if main_windows:
+                main_rect = win32gui.GetWindowRect(main_windows[0])
+                mx, my = main_rect[0], main_rect[1]
+                mw = main_rect[2] - main_rect[0]
+                mh = main_rect[3] - main_rect[1]
+            else:
+                # 메인 창 못 찾으면 기본값 사용
+                kw_config = self.config.get("kakao_window", {})
+                mw = kw_config.get("width", 420)
+                mh = kw_config.get("height", 700)
+                margin_r = kw_config.get("margin_right", 20)
+                margin_t = kw_config.get("margin_top", 40)
+                sw, sh = pyautogui.size() if pyautogui else (1920, 1080)
+                mx = sw - mw - margin_r
+                my = margin_t
+
+            # 3. 채팅창을 메인 카카오톡 위치와 같은 크기/위치로 이동
+            win32gui.MoveWindow(fg_hwnd, mx, my, mw, mh, True)
+            _debug_log(f"채팅창 배치 완료: '{fg_title}' → ({mx}, {my}) {mw}x{mh}")
+            time.sleep(0.3)
+
+        except Exception as e:
+            _debug_log(f"채팅창 배치 실패: {e}")
 
     def _position_chat_window(self):
-        """새로 열린 채팅창을 원래 카카오톡 창과 같은 위치에 겹쳐서 배치 (모든 창 대상)"""
+        """새로 열린 채팅창을 원래 카카오톡 창과 같은 위치에 겹쳐서 배치"""
         try:
-            import subprocess
-
-            # 원래 카카오톡 창 위치/크기 (config에서 가져옴)
             kw_config = self.config.get("kakao_window", {})
             chat_w = kw_config.get("width", 420)
             chat_h = kw_config.get("height", 700)
@@ -498,32 +645,52 @@ class KakaoSender:
             chat_x = sw - chat_w - margin_r
             chat_y = margin_t
 
-            # 모든 카카오톡 윈도우를 같은 위치에 배치 (새 채팅창 포함)
-            script = f'''
-            tell application "System Events"
-                tell process "KakaoTalk"
-                    set frontmost to true
-                    delay 0.3
-                    set winCount to count of windows
-                    repeat with i from 1 to winCount
-                        try
-                            set position of window i to {{{chat_x}, {chat_y}}}
-                            set size of window i to {{{chat_w}, {chat_h}}}
-                        end try
-                    end repeat
+            if self.is_mac:
+                import subprocess
+                script = f'''
+                tell application "System Events"
+                    tell process "KakaoTalk"
+                        set frontmost to true
+                        delay 0.3
+                        set winCount to count of windows
+                        repeat with i from 1 to winCount
+                            try
+                                set position of window i to {{{chat_x}, {chat_y}}}
+                                set size of window i to {{{chat_w}, {chat_h}}}
+                            end try
+                        end repeat
+                    end tell
                 end tell
-            end tell
-            '''
-            subprocess.run(["osascript", "-e", script], timeout=10)
-            _debug_log(f"채팅창 배치: 모든 창 → ({chat_x}, {chat_y}) {chat_w}x{chat_h}")
+                '''
+                subprocess.run(["osascript", "-e", script], timeout=10)
+            else:
+                # Windows: 모든 카카오톡 창을 같은 위치에 배치
+                try:
+                    import win32gui
+                    import win32con
+
+                    def callback(hwnd, results):
+                        if win32gui.IsWindowVisible(hwnd):
+                            title = win32gui.GetWindowText(hwnd)
+                            if "카카오톡" in title and "TalkPC" not in title:
+                                results.append(hwnd)
+
+                    results = []
+                    win32gui.EnumWindows(callback, results)
+                    for hwnd in results:
+                        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                        win32gui.MoveWindow(hwnd, chat_x, chat_y, chat_w, chat_h, True)
+                    _debug_log(f"채팅창 배치: {len(results)}개 창 → ({chat_x}, {chat_y}) {chat_w}x{chat_h}")
+                except ImportError:
+                    _debug_log("채팅창 배치: win32gui 없음")
+
             time.sleep(0.5)
         except Exception as e:
             _debug_log(f"채팅창 배치 실패: {e}")
 
     def type_message(self, message: str):
-        """메시지 입력"""
+        """메시지 입력 (채팅방이 이미 열려있는 상태)"""
         self._check_stop()
-        self._activate_kakao()
         coord = self.coords.get("message_input", {})
         _debug_log(f"type_message: message_input ({coord.get('x')}, {coord.get('y')})")
         self._safe_click(coord["x"], coord["y"])
@@ -536,7 +703,6 @@ class KakaoSender:
         self._check_stop()
         coord = self.coords.get("send_enter", {})
         _debug_log(f"send_message: 전송 버튼 클릭 ({coord.get('x')}, {coord.get('y')})")
-        self._activate_kakao()
         self._human_delay(0.2, 0.5)
         self._safe_click(coord["x"], coord["y"])
         self._human_delay(0.5, 1.0)
@@ -552,7 +718,6 @@ class KakaoSender:
         time.sleep(0.3)
 
         # 메시지 입력창 클릭 (포커스)
-        self._activate_kakao()
         coord = self.coords.get("message_input", {})
         self._safe_click(coord["x"], coord["y"])
         time.sleep(0.3)
@@ -591,9 +756,6 @@ class KakaoSender:
         else:
             self._safe_press("escape")
         self._human_delay(0.4, 0.8)
-        # 닫기 후 메인 창도 원래 위치로 재고정
-        if self.is_mac:
-            self._position_chat_window()
 
     def send_to_contact(self, name: str, message: str, image_path: str = None) -> SendResult:
         """

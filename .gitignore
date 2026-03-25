@@ -3,7 +3,12 @@ __pycache__/
 .venv/
 venv/
 .DS_Store
+._*
 .idea/
 .vscode/
 logs/
 *.swp
+build/
+dist/
+*.spec
+test_ocr*.png

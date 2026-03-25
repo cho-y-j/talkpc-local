@@ -279,7 +279,14 @@ class WindowController:
             if results:
                 hwnd = results[0]
                 win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-                win32gui.SetForegroundWindow(hwnd)
+                try:
+                    win32gui.SetForegroundWindow(hwnd)
+                except Exception:
+                    # SetForegroundWindow 제한 우회: Alt키 트릭
+                    import ctypes
+                    ctypes.windll.user32.keybd_event(0x12, 0, 0, 0)  # Alt down
+                    ctypes.windll.user32.keybd_event(0x12, 0, 2, 0)  # Alt up
+                    win32gui.SetForegroundWindow(hwnd)
                 return True
             return False
         except ImportError:
@@ -367,19 +374,22 @@ class WindowController:
 
     def calculate_ui_coordinates(self) -> dict:
         """
-        카카오톡 창 내부 UI 요소 좌표 계산
+        카카오톡 창 실제 위치를 감지하여 UI 요소 절대좌표 자동 계산
 
-        Mac 카카오톡 레이아웃 (상단부터):
-        - 타이틀바: ~28px
-        - 1행 (ky+28~ky+65): 프로필아이콘 | "채팅 ▼" | ... | 🔍 돋보기 | 💬 새채팅 | ➕
-        - 2행 (ky+65~ky+100): [전체] [안읽음 999+] [+]
-        - 3행~ (ky+100~): 채팅 목록
-
-        검색 클릭 후 레이아웃:
-        - 1행: ← 뒤로 | [검색 입력 필드]
-        - 2행~: 검색 결과 목록
+        Windows 카카오톡 PC 기준 상대좌표 비율 (창 크기 대비):
+        - 돋보기:    x=0.824, y=0.077   (우상단)
+        - 검색입력:  x=0.336, y=0.151   (상단 중앙)
+        - 검색결과:  x=0.350, y=0.260   (검색입력 아래)
+        - 메시지입력: x=0.095, y=0.874  (하단 좌측)
+        - 전송버튼:  x=0.860, y=0.973   (하단 우측)
+        - 이미지전송: x=0.481, y=0.577  (중앙)
+        - 뒤로가기:  x=0.957, y=0.027   (우상단 끝)
         """
-        if not self.kakao_rect:
+        # 카카오톡 창 실제 위치 감지 시도
+        current_rect = self._get_current_kakao_rect()
+        if current_rect:
+            self.kakao_rect = current_rect
+        elif not self.kakao_rect:
             self.calculate_kakao_position()
 
         kx = self.kakao_rect["x"]
@@ -389,44 +399,47 @@ class WindowController:
 
         coords = {
             "search_icon": {
-                "x": kx + kw - 110,
-                "y": ky + 50,
+                "x": kx + int(kw * 0.824),
+                "y": ky + int(kh * 0.077),
                 "description": "돋보기 검색 아이콘 (우상단)"
             },
             "search_input": {
-                "x": kx + kw // 2,
-                "y": ky + 50,
+                "x": kx + int(kw * 0.336),
+                "y": ky + int(kh * 0.151),
                 "description": "검색 입력 필드 (검색 모드 진입 후)"
             },
             "first_result": {
-                "x": kx + kw // 2,
-                "y": ky + 130,
+                "x": kx + int(kw * 0.350),
+                "y": ky + int(kh * 0.260),
                 "description": "첫 번째 검색 결과"
             },
             "message_input": {
-                "x": kx + kw // 2,
-                "y": ky + kh - 50,
+                "x": kx + int(kw * 0.095),
+                "y": ky + int(kh * 0.874),
                 "description": "메시지 입력창 (채팅방 하단)"
             },
+            "send_enter": {
+                "x": kx + int(kw * 0.860),
+                "y": ky + int(kh * 0.973),
+                "description": "보내기(전송) 버튼"
+            },
+            "image_send": {
+                "x": kx + int(kw * 0.481),
+                "y": ky + int(kh * 0.577),
+                "description": "이미지 전송 확인 버튼"
+            },
             "back_button": {
-                "x": kx + 30,
-                "y": ky + 50,
-                "description": "뒤로가기 버튼 (좌상단)"
+                "x": kx + int(kw * 0.957),
+                "y": ky + int(kh * 0.027),
+                "description": "뒤로가기/닫기 버튼 (우상단)"
             },
             "search_result_area": {
                 "x1": kx + 10,
-                "y1": ky + 80,
+                "y1": ky + int(kh * 0.15),
                 "x2": kx + kw - 10,
-                "y2": ky + 350,
+                "y2": ky + int(kh * 0.50),
                 "description": "검색 결과 영역 (OCR 대상)"
             },
-            "chat_header_area": {
-                "x1": kx,
-                "y1": ky + 28,
-                "x2": kx + kw,
-                "y2": ky + 100,
-                "description": "채팅 헤더 영역 (캘리브레이션용)"
-            }
         }
         return coords
 

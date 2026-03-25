@@ -429,8 +429,7 @@ class KakaoSender:
     def verify_search_result(self, target_name: str) -> dict:
         """
         OCR로 검색 결과 확인
-        검색 결과 영역에서 이름 텍스트 부분만 캡처하여 OCR
-        프로필 사진을 제외하고 이름이 표시되는 오른쪽 영역만 캡처
+        학습된 search_input(2번)과 first_result(3번) 좌표로 검색 결과 영역 캡처
         """
         try:
             search_input = self.coords.get("search_input", {})
@@ -439,16 +438,19 @@ class KakaoSender:
             if not search_input or not first_result:
                 return {"found": False, "error": "좌표 없음"}
 
-            # 캡처 영역: first_result 좌표 기준
-            # 프로필 사진(왼쪽 ~80px)을 제외하고 이름 텍스트 영역만 캡처
-            fx = first_result["x"]
-            fy = first_result["y"]
-            x1 = fx - 80     # 프로필 사진 제외, 이름 시작 부근
-            y1 = fy - 25     # 결과 위쪽
-            x2 = fx + 150    # 이름 끝 (날짜 영역 제외)
-            y2 = fy + 25     # 결과 아래쪽
+            # 학습된 좌표로 검색 결과 영역 계산
+            si_y = search_input["y"]
+            fr_x = first_result["x"]
+            fr_y = first_result["y"]
 
-            _debug_log(f"OCR 캡처 영역: ({x1},{y1}) ~ ({x2},{y2})")
+            # search_input 아래 ~ first_result 아래까지 캡처
+            x1 = max(0, fr_x - 100)
+            y1 = si_y + 20
+            x2 = fr_x + 200
+            y2 = fr_y + 40
+
+            _debug_log(f"OCR 캡처 영역: ({x1},{y1}) ~ ({x2},{y2}) "
+                       f"[search_input_y={si_y}, first_result=({fr_x},{fr_y})]")
             screenshot = self.capture.capture_region(x1, y1, x2, y2)
 
             # 디버그: 캡처 이미지 저장

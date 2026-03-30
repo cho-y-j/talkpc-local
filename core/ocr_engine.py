@@ -35,12 +35,25 @@ class OCREngine:
             if os.path.exists(tesseract_path):
                 pytesseract.pytesseract.tesseract_cmd = tesseract_path
 
-        # 프로젝트 내 tessdata 확인 (kor.traineddata 포함)
-        project_tessdata = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "config", "tessdata"
-        )
-        if os.path.exists(os.path.join(project_tessdata, "kor.traineddata")):
-            self.tessdata_dir = project_tessdata
+        # 프로젝트 내 tessdata 확인 (exe와 스크립트 모두 지원)
+        import sys
+        if getattr(sys, 'frozen', False):
+            # exe: exe 옆 config/tessdata 또는 _internal/config/tessdata
+            exe_dir = os.path.dirname(sys.executable)
+            candidates = [
+                os.path.join(exe_dir, "config", "tessdata"),
+                os.path.join(getattr(sys, '_MEIPASS', ''), "config", "tessdata"),
+                os.path.join(exe_dir, "_internal", "config", "tessdata"),
+            ]
+        else:
+            candidates = [
+                os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "tessdata")
+            ]
+
+        for path in candidates:
+            if os.path.exists(os.path.join(path, "kor.traineddata")):
+                self.tessdata_dir = path
+                break
 
         try:
             pytesseract.get_tesseract_version()

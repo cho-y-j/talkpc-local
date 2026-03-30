@@ -147,12 +147,14 @@ class ContactPage(ctk.CTkFrame):
             btn.pack(side="left", padx=(0, 4))
 
     def refresh_list(self, category: str = "all", search: str = ""):
-        """연락처 목록 새로고침"""
+        """연락처 목록 새로고침 (50명씩 페이지네이션)"""
         for widget in self.list_frame.winfo_children():
             widget.destroy()
 
+        self._page_size = 50
+        self._current_page = 0
+
         if self.api_client and self.api_client.is_logged_in:
-            # SaaS 모드: API에서 가져오기
             try:
                 cat = category if category != "all" else None
                 self._contacts_cache = self.api_client.get_contacts(
@@ -160,12 +162,9 @@ class ContactPage(ctk.CTkFrame):
                 )
             except Exception:
                 self._contacts_cache = []
-
-            for c_data in self._contacts_cache:
-                self._create_contact_row_api(c_data)
-            self.count_label.configure(text=f"총 {len(self._contacts_cache)}명")
+            self._all_contacts_local = None
+            self._render_page_api()
         elif self.orchestrator:
-            # 로컬 모드
             contacts = self.orchestrator.contact_mgr.get_by_category(category)
             if search:
                 search = search.lower()
@@ -175,9 +174,73 @@ class ContactPage(ctk.CTkFrame):
                     or search in c.company.lower()
                     or search in c.memo.lower()
                 ]
-            for contact in contacts:
-                self._create_contact_row(contact)
-            self.count_label.configure(text=f"총 {len(contacts)}명")
+            self._all_contacts_local = contacts
+            self._contacts_cache = None
+            self._render_page_local()
+
+    def _render_page_local(self):
+        """로컬 모드 페이지 렌더링"""
+        for widget in self.list_frame.winfo_children():
+            widget.destroy()
+
+        contacts = self._all_contacts_local or []
+        total = len(contacts)
+        start = self._current_page * self._page_size
+        end = min(start + self._page_size, total)
+        page_contacts = contacts[start:end]
+
+        for contact in page_contacts:
+            self._create_contact_row(contact)
+
+        self.count_label.configure(
+            text=f"총 {total}명 ({start+1}-{end})" if total > self._page_size else f"총 {total}명"
+        )
+
+        # 페이지 네비게이션
+        if total > self._page_size:
+            nav = ctk.CTkFrame(self.list_frame, fg_color="transparent", height=36)
+            nav.pack(fill="x", pady=8)
+            total_pages = (total + self._page_size - 1) // self._page_size
+
+            if self._current_page > 0:
+                ctk.CTkButton(
+                    nav, text="◀ 이전", width=80, height=28,
+                    font=(T.get_font_family(), T.FONT_SIZE_SMALL),
+                    fg_color=T.BG_HOVER, hover_color=T.BORDER,
+                    text_color=T.TEXT_PRIMARY, corner_radius=6,
+                    command=lambda: self._go_page(-1)
+                ).pack(side="left", padx=4)
+
+            ctk.CTkLabel(
+                nav, text=f"{self._current_page+1} / {total_pages}",
+                font=(T.get_font_family(), T.FONT_SIZE_SMALL),
+                text_color=T.TEXT_SECONDARY
+            ).pack(side="left", padx=12)
+
+            if end < total:
+                ctk.CTkButton(
+                    nav, text="다음 ▶", width=80, height=28,
+                    font=(T.get_font_family(), T.FONT_SIZE_SMALL),
+                    fg_color=T.BG_HOVER, hover_color=T.BORDER,
+                    text_color=T.TEXT_PRIMARY, corner_radius=6,
+                    command=lambda: self._go_page(1)
+                ).pack(side="left", padx=4)
+
+    def _render_page_api(self):
+        """SaaS 모드 페이지 렌더링"""
+        for widget in self.list_frame.winfo_children():
+            widget.destroy()
+        cache = self._contacts_cache or []
+        for c_data in cache:
+            self._create_contact_row_api(c_data)
+        self.count_label.configure(text=f"총 {len(cache)}명")
+
+    def _go_page(self, delta):
+        """페이지 이동"""
+        self._current_page += delta
+        if self._current_page < 0:
+            self._current_page = 0
+        self._render_page_local()
 
     def _create_contact_row(self, contact):
         """연락처 행 생성"""

@@ -7,7 +7,15 @@ import sys
 import os
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).parent.resolve()
+def get_project_root():
+    """exe 실행 시 exe가 있는 폴더, 스크립트 실행 시 스크립트 폴더"""
+    if getattr(sys, 'frozen', False):
+        # PyInstaller exe: exe 파일이 있는 폴더를 기준으로
+        return Path(sys.executable).parent.resolve()
+    else:
+        return Path(__file__).parent.resolve()
+
+PROJECT_ROOT = get_project_root()
 sys.path.insert(0, str(PROJECT_ROOT))
 os.chdir(PROJECT_ROOT)
 

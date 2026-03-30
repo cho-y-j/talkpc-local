@@ -173,7 +173,7 @@ class ContactManager:
             counts[c.category] = counts.get(c.category, 0) + 1
         return counts
 
-    def import_from_excel(self, filepath: str) -> dict:
+    def import_from_excel(self, filepath: str, default_category: str = None) -> dict:
         """
         엑셀 파일에서 연락처 일괄 가져오기
 
@@ -226,9 +226,13 @@ class ContactManager:
                         result["skipped"] += 1
                         continue
 
+                    # 카테고리: 엑셀에 있으면 사용, 없으면 default_category, 그것도 없으면 "미지정"
+                    cat = data.get("category", "").strip()
+                    if not cat:
+                        cat = default_category or "미지정"
                     contact = Contact(
                         name=data.get("name", ""),
-                        category=data.get("category", "other"),
+                        category=cat,
                         phone=data.get("phone", ""),
                         company=data.get("company", ""),
                         position=data.get("position", ""),

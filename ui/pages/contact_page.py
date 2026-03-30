@@ -174,6 +174,8 @@ class ContactPage(ctk.CTkFrame):
                     or search in c.company.lower()
                     or search in c.memo.lower()
                 ]
+            # 최근 추가 순 (최신이 위)
+            contacts = list(reversed(contacts))
             self._all_contacts_local = contacts
             self._contacts_cache = None
             self._render_page_local()
@@ -465,7 +467,11 @@ class ContactPage(ctk.CTkFrame):
                     messagebox.showerror("오류", str(e))
             return
 
-        dialog = ContactDialog(self, title="연락처 추가", orchestrator=self.orchestrator)
+        # 현재 보고 있는 카테고리를 기본값으로 전달
+        current_cat = self.category_var.get()
+        default_cat = current_cat if current_cat != "all" else "other"
+        dialog = ContactDialog(self, title="연락처 추가", orchestrator=self.orchestrator,
+                               default_category=default_cat)
         self.wait_window(dialog)
         if dialog.result and self.orchestrator:
             from core.contact_manager import Contact
@@ -532,10 +538,16 @@ class ContactPage(ctk.CTkFrame):
             except Exception as e:
                 messagebox.showerror("오류", str(e))
         elif self.orchestrator:
-            result = self.orchestrator.contact_mgr.import_from_excel(filepath)
+            # 현재 카테고리 탭 → 카테고리 없는 항목에 자동 지정
+            current_cat = self.category_var.get()
+            default_cat = current_cat if current_cat != "all" else None
+            result = self.orchestrator.contact_mgr.import_from_excel(
+                filepath, default_category=default_cat
+            )
+            cat_msg = f"\n카테고리 미지정 → '{default_cat}' 자동 지정" if default_cat else ""
             messagebox.showinfo(
                 "가져오기 완료",
-                f"추가: {result['success']}명\n건너뜀: {result['skipped']}명"
+                f"추가: {result['success']}명\n건너뜀: {result['skipped']}명{cat_msg}"
             )
             self._refresh_category_buttons()
             self.refresh_list(category=self.category_var.get())
@@ -627,7 +639,8 @@ class CategoryDialog(ctk.CTkToplevel):
 class ContactDialog(ctk.CTkToplevel):
     """연락처 추가/편집 다이얼로그"""
 
-    def __init__(self, parent, title="연락처", contact=None, orchestrator=None, **kwargs):
+    def __init__(self, parent, title="연락처", contact=None, orchestrator=None,
+                 default_category=None, **kwargs):
         super().__init__(parent, **kwargs)
         self.title(title)
         self.geometry("420x640")
@@ -635,6 +648,7 @@ class ContactDialog(ctk.CTkToplevel):
         self.result = None
         self.contact = contact
         self.orchestrator = orchestrator
+        self.default_category = default_category
 
         self.transient(parent)
         self.grab_set()
@@ -728,9 +742,8 @@ class ContactDialog(ctk.CTkToplevel):
         if self.orchestrator:
             categories = self.orchestrator.contact_mgr.get_all_categories()
 
-        self.category_var = ctk.StringVar(
-            value=self.contact.category if self.contact else "other"
-        )
+        default_cat = self.contact.category if self.contact else (self.default_category or "other")
+        self.category_var = ctk.StringVar(value=default_cat)
         self.category_menu = ctk.CTkOptionMenu(
             scroll, values=categories,
             variable=self.category_var,

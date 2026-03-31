@@ -167,10 +167,29 @@ class ContactPage(ctk.CTkFrame):
             command=self._delete_selected
         ).pack(side="right")
 
+        # 선택 → 카테고리 이동
+        ctk.CTkLabel(
+            bottom, text="선택 →",
+            font=(T.get_font_family(), T.FONT_SIZE_SMALL),
+            text_color=T.TEXT_MUTED
+        ).pack(side="right", padx=(0, 4))
+
+        self.move_cat_var = ctk.StringVar(value="이동할 카테고리")
+        self.move_cat_menu = ctk.CTkOptionMenu(
+            bottom, values=["friend", "family", "business", "vip", "other"],
+            variable=self.move_cat_var,
+            width=120, height=28,
+            font=(T.get_font_family(), T.FONT_SIZE_SMALL),
+            fg_color=T.BG_INPUT, button_color=T.BG_HOVER,
+            text_color=T.TEXT_PRIMARY, corner_radius=6,
+            command=self._move_selected_to_category
+        )
+        self.move_cat_menu.pack(side="right", padx=(0, 8))
+
         self.refresh_list()
 
     def _refresh_category_buttons(self):
-        """카테고리 버튼 동적 생성"""
+        """카테고리 버튼 동적 생성 + 이동 드롭다운 갱신"""
         for w in self.cat_btn_frame.winfo_children():
             w.destroy()
 
@@ -200,6 +219,11 @@ class ContactPage(ctk.CTkFrame):
                 command=lambda cid=cat_id: self._filter_category(cid)
             )
             btn.pack(side="left", padx=(0, 4))
+
+        # 이동 드롭다운 카테고리 갱신
+        if hasattr(self, 'move_cat_menu') and self.orchestrator:
+            all_cats = self.orchestrator.contact_mgr.get_all_categories()
+            self.move_cat_menu.configure(values=all_cats)
 
     def refresh_list(self, category: str = "all", search: str = ""):
         """연락처 목록 새로고침 (Treeview - 즉시 로드)"""
@@ -321,6 +345,35 @@ class ContactPage(ctk.CTkFrame):
             self.orchestrator.contact_mgr.update(contact_id, category=new_category)
             self._refresh_category_buttons()
             self.refresh_list(category=self.category_var.get())
+
+    def _move_selected_to_category(self, new_category):
+        """선택된 연락처를 다른 카테고리로 일괄 이동"""
+        sel = self.tree.selection()
+        if not sel:
+            messagebox.showinfo("알림", "이동할 연락처를 선택하세요.\n(Ctrl+클릭 또는 Shift+클릭)")
+            self.move_cat_var.set("이동할 카테고리")
+            return
+
+        cat_label_map = {
+            "friend": "친구", "family": "가족", "business": "사업체",
+            "vip": "VIP", "other": "기타"
+        }
+        label = cat_label_map.get(new_category, new_category)
+
+        if not messagebox.askyesno("카테고리 이동",
+                                    f"{len(sel)}명을 '{label}'(으)로 이동하시겠습니까?"):
+            self.move_cat_var.set("이동할 카테고리")
+            return
+
+        if self.orchestrator:
+            for iid in sel:
+                cid = self._tree_id_map.get(iid)
+                if cid:
+                    self.orchestrator.contact_mgr.update(cid, category=new_category)
+
+        self.move_cat_var.set("이동할 카테고리")
+        self._refresh_category_buttons()
+        self.refresh_list(category=self.category_var.get())
 
     def _filter_category(self, category: str):
         self.category_var.set(category)

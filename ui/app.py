@@ -85,6 +85,8 @@ class App(ctk.CTk):
                 self.pages["dashboard"].refresh_stats()
             elif page_id == "contacts":
                 self.pages["contacts"].refresh_list()
+            elif page_id == "send":
+                self.pages["send"]._refresh_all()
 
     def _on_orch_state(self, state):
         def _update():

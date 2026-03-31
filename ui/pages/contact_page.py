@@ -1,10 +1,11 @@
 """
 Contact Page - 연락처 관리 페이지
-커스텀 카테고리, 엑셀 샘플 다운로드, 가져오기/내보내기
+Treeview 기반 고속 테이블 + 커스텀 카테고리
 """
 
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
 import customtkinter as ctk
-from tkinter import filedialog, messagebox
 from ui.theme import AppTheme as T
 
 
@@ -96,21 +97,75 @@ class ContactPage(ctk.CTkFrame):
         self.search_entry.pack(fill="x")
         self.search_entry.bind("<KeyRelease>", lambda e: self._on_search())
 
-        # -- 연락처 목록 --
-        self.list_frame = ctk.CTkScrollableFrame(
-            self, fg_color=T.BG_DARK,
-            scrollbar_button_color=T.BG_HOVER,
-            scrollbar_button_hover_color=T.BORDER
-        )
-        self.list_frame.pack(fill="both", expand=True, padx=24, pady=(0, 16))
+        # -- Treeview 스타일 (다크 테마) --
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure("Contact.Treeview",
+                         background="#1c2333", foreground="#e6edf3",
+                         fieldbackground="#1c2333", borderwidth=0,
+                         font=(T.get_font_family(), 11),
+                         rowheight=32)
+        style.configure("Contact.Treeview.Heading",
+                         background="#2d333b", foreground="#e6edf3",
+                         font=(T.get_font_family(), 10, "bold"),
+                         borderwidth=0)
+        style.map("Contact.Treeview",
+                   background=[("selected", "#2f81f7")],
+                   foreground=[("selected", "#ffffff")])
 
-        # -- 하단 카운트 --
+        # -- Treeview 테이블 --
+        tree_frame = ctk.CTkFrame(self, fg_color="#1c2333", corner_radius=8)
+        tree_frame.pack(fill="both", expand=True, padx=24, pady=(0, 8))
+
+        columns = ("name", "category", "phone", "company", "memo")
+        self.tree = ttk.Treeview(
+            tree_frame, columns=columns, show="headings",
+            selectmode="extended", style="Contact.Treeview"
+        )
+        self.tree.heading("name", text="이름", anchor="w")
+        self.tree.heading("category", text="카테고리", anchor="w")
+        self.tree.heading("phone", text="전화번호", anchor="w")
+        self.tree.heading("company", text="회사", anchor="w")
+        self.tree.heading("memo", text="메모", anchor="w")
+
+        self.tree.column("name", width=100, minwidth=80)
+        self.tree.column("category", width=80, minwidth=60)
+        self.tree.column("phone", width=130, minwidth=100)
+        self.tree.column("company", width=120, minwidth=80)
+        self.tree.column("memo", width=200, minwidth=100)
+
+        # 스크롤바
+        scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        self.tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # 더블클릭 → 편집
+        self.tree.bind("<Double-1>", self._on_tree_double_click)
+        # 우클릭 → 메뉴
+        self.tree.bind("<Button-3>", self._on_tree_right_click)
+
+        # contact id → tree item 매핑
+        self._tree_id_map = {}
+
+        # -- 하단: 카운트 + 선택 삭제 --
+        bottom = ctk.CTkFrame(self, fg_color="transparent")
+        bottom.pack(fill="x", padx=24, pady=(0, 12))
+
         self.count_label = ctk.CTkLabel(
-            self, text="총 0명",
+            bottom, text="총 0명",
             font=(T.get_font_family(), T.FONT_SIZE_SMALL),
             text_color=T.TEXT_MUTED
         )
-        self.count_label.pack(padx=24, pady=(0, 12))
+        self.count_label.pack(side="left")
+
+        ctk.CTkButton(
+            bottom, text="선택 삭제", width=80, height=28,
+            font=(T.get_font_family(), T.FONT_SIZE_SMALL),
+            fg_color=T.BG_HOVER, hover_color="#f85149",
+            text_color=T.TEXT_PRIMARY, corner_radius=6,
+            command=self._delete_selected
+        ).pack(side="right")
 
         self.refresh_list()
 
@@ -147,12 +202,16 @@ class ContactPage(ctk.CTkFrame):
             btn.pack(side="left", padx=(0, 4))
 
     def refresh_list(self, category: str = "all", search: str = ""):
-        """연락처 목록 새로고침 (50명씩 페이지네이션)"""
-        for widget in self.list_frame.winfo_children():
-            widget.destroy()
+        """연락처 목록 새로고침 (Treeview - 즉시 로드)"""
+        # 기존 항목 전부 삭제
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        self._tree_id_map.clear()
 
-        self._page_size = 50
-        self._current_page = 0
+        cat_label_map = {
+            "friend": "친구", "family": "가족", "business": "사업체",
+            "vip": "VIP", "other": "기타", "미지정": "미지정"
+        }
 
         if self.api_client and self.api_client.is_logged_in:
             try:
@@ -162,8 +221,15 @@ class ContactPage(ctk.CTkFrame):
                 )
             except Exception:
                 self._contacts_cache = []
-            self._all_contacts_local = None
-            self._render_page_api()
+            for c in self._contacts_cache:
+                cat_text = cat_label_map.get(c.get("category", ""), c.get("category", ""))
+                iid = self.tree.insert("", 0, values=(
+                    c.get("name", ""), cat_text,
+                    c.get("phone", ""), c.get("company", ""),
+                    c.get("memo", "")[:30]
+                ))
+                self._tree_id_map[iid] = c.get("id", "")
+            self.count_label.configure(text=f"총 {len(self._contacts_cache)}명")
         elif self.orchestrator:
             contacts = self.orchestrator.contact_mgr.get_by_category(category)
             if search:
@@ -174,274 +240,87 @@ class ContactPage(ctk.CTkFrame):
                     or search in c.company.lower()
                     or search in c.memo.lower()
                 ]
-            # 최근 추가 순 (최신이 위)
-            contacts = list(reversed(contacts))
-            self._all_contacts_local = contacts
-            self._contacts_cache = None
-            self._render_page_local()
+            # 최근 추가 순 (최신이 위) → insert at index 0이 아닌 "end"로 역순 삽입
+            for contact in reversed(contacts):
+                cat_text = cat_label_map.get(contact.category, contact.category)
+                iid = self.tree.insert("", "end", values=(
+                    contact.name, cat_text,
+                    contact.phone or "", contact.company or "",
+                    (contact.memo or "")[:30]
+                ))
+                self._tree_id_map[iid] = contact.id
+            self.count_label.configure(text=f"총 {len(contacts)}명")
 
-    def _render_page_local(self):
-        """로컬 모드 페이지 렌더링"""
-        for widget in self.list_frame.winfo_children():
-            widget.destroy()
+    # -- Treeview 이벤트 --
 
-        contacts = self._all_contacts_local or []
-        total = len(contacts)
-        start = self._current_page * self._page_size
-        end = min(start + self._page_size, total)
-        page_contacts = contacts[start:end]
+    def _get_contact_by_tree_item(self, iid):
+        """Treeview item → Contact 객체"""
+        contact_id = self._tree_id_map.get(iid)
+        if contact_id and self.orchestrator:
+            for c in self.orchestrator.contact_mgr.get_all():
+                if c.id == contact_id:
+                    return c
+        return None
 
-        for contact in page_contacts:
-            self._create_contact_row(contact)
+    def _on_tree_double_click(self, event):
+        """더블클릭 → 편집"""
+        sel = self.tree.selection()
+        if not sel:
+            return
+        contact = self._get_contact_by_tree_item(sel[0])
+        if contact:
+            self._edit_contact(contact)
 
-        self.count_label.configure(
-            text=f"총 {total}명 ({start+1}-{end})" if total > self._page_size else f"총 {total}명"
-        )
+    def _on_tree_right_click(self, event):
+        """우클릭 → 컨텍스트 메뉴"""
+        iid = self.tree.identify_row(event.y)
+        if not iid:
+            return
+        self.tree.selection_set(iid)
+        contact = self._get_contact_by_tree_item(iid)
+        if not contact:
+            return
 
-        # 페이지 네비게이션
-        if total > self._page_size:
-            nav = ctk.CTkFrame(self.list_frame, fg_color="transparent", height=36)
-            nav.pack(fill="x", pady=8)
-            total_pages = (total + self._page_size - 1) // self._page_size
+        menu = tk.Menu(self, tearoff=0, bg="#2d333b", fg="#e6edf3",
+                       activebackground="#2f81f7", activeforeground="#fff")
+        menu.add_command(label=f"편집: {contact.name}", command=lambda: self._edit_contact(contact))
+        menu.add_separator()
 
-            if self._current_page > 0:
-                ctk.CTkButton(
-                    nav, text="◀ 이전", width=80, height=28,
-                    font=(T.get_font_family(), T.FONT_SIZE_SMALL),
-                    fg_color=T.BG_HOVER, hover_color=T.BORDER,
-                    text_color=T.TEXT_PRIMARY, corner_radius=6,
-                    command=lambda: self._go_page(-1)
-                ).pack(side="left", padx=4)
+        # 카테고리 변경 서브메뉴
+        cat_menu = tk.Menu(menu, tearoff=0, bg="#2d333b", fg="#e6edf3",
+                           activebackground="#2f81f7", activeforeground="#fff")
+        all_cats = self.orchestrator.contact_mgr.get_all_categories() if self.orchestrator else []
+        for cat in all_cats:
+            cat_menu.add_command(
+                label=cat,
+                command=lambda c=contact, ca=cat: self._quick_change_category(c.id, ca)
+            )
+        menu.add_cascade(label="카테고리 변경", menu=cat_menu)
+        menu.add_separator()
+        menu.add_command(label="삭제", command=lambda: self._delete_contact(contact.id))
+        menu.tk_popup(event.x_root, event.y_root)
 
-            ctk.CTkLabel(
-                nav, text=f"{self._current_page+1} / {total_pages}",
-                font=(T.get_font_family(), T.FONT_SIZE_SMALL),
-                text_color=T.TEXT_SECONDARY
-            ).pack(side="left", padx=12)
-
-            if end < total:
-                ctk.CTkButton(
-                    nav, text="다음 ▶", width=80, height=28,
-                    font=(T.get_font_family(), T.FONT_SIZE_SMALL),
-                    fg_color=T.BG_HOVER, hover_color=T.BORDER,
-                    text_color=T.TEXT_PRIMARY, corner_radius=6,
-                    command=lambda: self._go_page(1)
-                ).pack(side="left", padx=4)
-
-    def _render_page_api(self):
-        """SaaS 모드 페이지 렌더링"""
-        for widget in self.list_frame.winfo_children():
-            widget.destroy()
-        cache = self._contacts_cache or []
-        for c_data in cache:
-            self._create_contact_row_api(c_data)
-        self.count_label.configure(text=f"총 {len(cache)}명")
-
-    def _go_page(self, delta):
-        """페이지 이동"""
-        self._current_page += delta
-        if self._current_page < 0:
-            self._current_page = 0
-        self._render_page_local()
-
-    def _create_contact_row(self, contact):
-        """연락처 행 생성"""
-        row = ctk.CTkFrame(
-            self.list_frame, fg_color=T.BG_CARD,
-            corner_radius=6, height=56,
-            border_width=1, border_color=T.BORDER
-        )
-        row.pack(fill="x", pady=3)
-        row.pack_propagate(False)
-
-        cat_color = T.CATEGORY_COLORS.get(contact.category, T.TEXT_MUTED)
-        ctk.CTkLabel(
-            row, text=f" {contact.category} ",
-            font=(T.get_font_family(), 9, "bold"),
-            fg_color=cat_color, text_color=T.BG_DARK,
-            corner_radius=4, width=60
-        ).pack(side="left", padx=(12, 8), pady=8)
-
-        ctk.CTkLabel(
-            row, text=contact.name,
-            font=(T.get_font_family(), T.FONT_SIZE_BODY, "bold"),
-            text_color=T.TEXT_PRIMARY, width=120
-        ).pack(side="left", padx=(0, 12))
-
-        ctk.CTkLabel(
-            row, text=contact.company or "-",
-            font=(T.get_font_family(), T.FONT_SIZE_SMALL),
-            text_color=T.TEXT_SECONDARY, width=120
-        ).pack(side="left", padx=(0, 12))
-
-        ctk.CTkLabel(
-            row, text=contact.phone or "-",
-            font=(T.get_font_family(), T.FONT_SIZE_SMALL),
-            text_color=T.TEXT_MUTED, width=120
-        ).pack(side="left", padx=(0, 12))
-
-        # 생일/기념일 표시
-        date_info = ""
-        if contact.birthday:
-            date_info += f"🎂{contact.birthday}"
-        if contact.anniversary:
-            date_info += f" 🎉{contact.anniversary}" if date_info else f"🎉{contact.anniversary}"
-        ctk.CTkLabel(
-            row, text=date_info or "-",
-            font=(T.get_font_family(), T.FONT_SIZE_SMALL),
-            text_color=T.TEXT_MUTED, width=100
-        ).pack(side="left", padx=(0, 8))
-
-        ctk.CTkLabel(
-            row, text=contact.memo[:20] + "..." if len(contact.memo) > 20 else contact.memo or "-",
-            font=(T.get_font_family(), T.FONT_SIZE_SMALL),
-            text_color=T.TEXT_MUTED
-        ).pack(side="left", padx=(0, 12), expand=True)
-
-        ctk.CTkButton(
-            row, text="🗑", width=30, height=26,
-            font=(T.get_font_family(), 12),
-            fg_color="transparent", hover_color=T.ERROR,
-            text_color=T.TEXT_MUTED, corner_radius=4,
-            command=lambda cid=contact.id: self._delete_contact(cid)
-        ).pack(side="right", padx=(0, 8))
-
-        ctk.CTkButton(
-            row, text="✏️", width=30, height=26,
-            font=(T.get_font_family(), 12),
-            fg_color="transparent", hover_color=T.BG_HOVER,
-            text_color=T.TEXT_MUTED, corner_radius=4,
-            command=lambda c=contact: self._edit_contact(c)
-        ).pack(side="right", padx=(0, 4))
-
-        # 인라인 카테고리 변경 (한글 표시)
-        cat_label_map = {"friend": "친구", "family": "가족", "business": "사업체", "vip": "VIP", "other": "기타"}
+    def _delete_selected(self):
+        """선택된 연락처 일괄 삭제"""
+        sel = self.tree.selection()
+        if not sel:
+            messagebox.showinfo("알림", "삭제할 연락처를 선택하세요.")
+            return
+        if not messagebox.askyesno("삭제 확인", f"{len(sel)}명을 삭제하시겠습니까?"):
+            return
         if self.orchestrator:
-            raw_cats = self.orchestrator.contact_mgr.get_all_categories()
-            for c in raw_cats:
-                if c not in cat_label_map:
-                    cat_label_map[c] = c
-        cat_value_map = {v: k for k, v in cat_label_map.items()}
-        cat_labels = list(cat_label_map.values())
-        current_label = cat_label_map.get(contact.category, contact.category)
-        cat_var = ctk.StringVar(value=current_label)
-        cat_menu = ctk.CTkOptionMenu(
-            row, values=cat_labels, variable=cat_var,
-            width=75, height=24,
-            font=(T.get_font_family(), 9),
-            fg_color=T.BG_INPUT, button_color=T.BG_HOVER,
-            text_color=T.TEXT_PRIMARY, corner_radius=4,
-            command=lambda val, _id=contact.id, _m=cat_value_map: self._quick_change_category(_id, _m.get(val, val))
-        )
-        cat_menu.pack(side="right", padx=(0, 4))
-
-    def _create_contact_row_api(self, c_data: dict):
-        """API 연락처 행 생성 (SaaS 모드)"""
-        row = ctk.CTkFrame(
-            self.list_frame, fg_color=T.BG_CARD,
-            corner_radius=6, height=56,
-            border_width=1, border_color=T.BORDER
-        )
-        row.pack(fill="x", pady=3)
-        row.pack_propagate(False)
-
-        cat = c_data.get("category", "other")
-        cat_color = T.CATEGORY_COLORS.get(cat, T.TEXT_MUTED)
-        ctk.CTkLabel(
-            row, text=f" {cat} ",
-            font=(T.get_font_family(), 9, "bold"),
-            fg_color=cat_color, text_color=T.BG_DARK,
-            corner_radius=4, width=60
-        ).pack(side="left", padx=(12, 8), pady=8)
-
-        ctk.CTkLabel(
-            row, text=c_data.get("name", ""),
-            font=(T.get_font_family(), T.FONT_SIZE_BODY, "bold"),
-            text_color=T.TEXT_PRIMARY, width=120
-        ).pack(side="left", padx=(0, 12))
-
-        ctk.CTkLabel(
-            row, text=c_data.get("company", "") or "-",
-            font=(T.get_font_family(), T.FONT_SIZE_SMALL),
-            text_color=T.TEXT_SECONDARY, width=120
-        ).pack(side="left", padx=(0, 12))
-
-        ctk.CTkLabel(
-            row, text=c_data.get("phone", "") or "-",
-            font=(T.get_font_family(), T.FONT_SIZE_SMALL),
-            text_color=T.TEXT_MUTED, width=120
-        ).pack(side="left", padx=(0, 12))
-
-        memo = c_data.get("memo", "") or ""
-        ctk.CTkLabel(
-            row, text=memo[:20] + "..." if len(memo) > 20 else memo or "-",
-            font=(T.get_font_family(), T.FONT_SIZE_SMALL),
-            text_color=T.TEXT_MUTED
-        ).pack(side="left", padx=(0, 12), expand=True)
-
-        cid = c_data.get("id")
-        ctk.CTkButton(
-            row, text="🗑", width=30, height=26,
-            font=(T.get_font_family(), 12),
-            fg_color="transparent", hover_color=T.ERROR,
-            text_color=T.TEXT_MUTED, corner_radius=4,
-            command=lambda: self._delete_contact_api(cid)
-        ).pack(side="right", padx=(0, 8))
-
-        ctk.CTkButton(
-            row, text="✏️", width=30, height=26,
-            font=(T.get_font_family(), 12),
-            fg_color="transparent", hover_color=T.BG_HOVER,
-            text_color=T.TEXT_MUTED, corner_radius=4,
-            command=lambda d=c_data: self._edit_contact_api(d)
-        ).pack(side="right", padx=(0, 4))
-
-        # 인라인 카테고리 변경 (한글 표시)
-        cat_labels = ["고객", "친구", "가족", "사업체", "VIP", "기타"]
-        cat_values = ["customer", "friend", "family", "business", "vip", "other"]
-        cat_label_map = dict(zip(cat_values, cat_labels))
-        cat_value_map = dict(zip(cat_labels, cat_values))
-        current_label = cat_label_map.get(cat, cat)
-        cat_var = ctk.StringVar(value=current_label)
-        cat_menu = ctk.CTkOptionMenu(
-            row, values=cat_labels, variable=cat_var,
-            width=75, height=24,
-            font=(T.get_font_family(), 9),
-            fg_color=T.BG_INPUT, button_color=T.BG_HOVER,
-            text_color=T.TEXT_PRIMARY, corner_radius=4,
-            command=lambda val, _id=cid, _m=cat_value_map: self._quick_change_category_api(_id, _m.get(val, val))
-        )
-        cat_menu.pack(side="right", padx=(0, 4))
-
-    def _quick_change_category_api(self, contact_id, new_category):
-        """SaaS: 카테고리 즉시 변경"""
-        try:
-            self.api_client.update_contact(contact_id, {"category": new_category})
-        except Exception:
-            pass
+            for iid in sel:
+                cid = self._tree_id_map.get(iid)
+                if cid:
+                    self.orchestrator.contact_mgr.delete(cid)
+        self.refresh_list(category=self.category_var.get())
 
     def _quick_change_category(self, contact_id, new_category):
-        """로컬: 카테고리 즉시 변경"""
+        """카테고리 즉시 변경"""
         if self.orchestrator:
             self.orchestrator.contact_mgr.update(contact_id, category=new_category)
-
-    def _delete_contact_api(self, contact_id):
-        if messagebox.askyesno("삭제 확인", "정말 삭제하시겠습니까?"):
-            try:
-                self.api_client.delete_contact(contact_id)
-                self.refresh_list(category=self.category_var.get())
-            except Exception as e:
-                messagebox.showerror("오류", str(e))
-
-    def _edit_contact_api(self, c_data):
-        dialog = ContactDialogAPI(self, title="연락처 편집", contact_data=c_data)
-        self.wait_window(dialog)
-        if dialog.result:
-            try:
-                self.api_client.update_contact(c_data["id"], dialog.result)
-                self.refresh_list(category=self.category_var.get())
-            except Exception as e:
-                messagebox.showerror("오류", str(e))
+            self._refresh_category_buttons()
+            self.refresh_list(category=self.category_var.get())
 
     def _filter_category(self, category: str):
         self.category_var.set(category)

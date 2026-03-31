@@ -1,9 +1,11 @@
 """
 Send Page - 발송 실행 페이지 (LOCAL-ONLY)
-대상 선택 (검색/필터/체크박스) + 메시지 작성 + 발송 실행
+대상 선택 (Treeview 다중선택) + 메시지 작성 + 발송 실행
 카카오톡 봇 전용 로컬 모드
 """
 
+import tkinter as tk
+from tkinter import ttk
 import customtkinter as ctk
 from tkinter import messagebox
 from ui.theme import AppTheme as T
@@ -135,12 +137,43 @@ class SendPage(ctk.CTkFrame):
             command=self._deselect_all
         ).pack(side="left")
 
-        # 연락처 리스트
-        self.contact_list_frame = ctk.CTkScrollableFrame(
-            left_card, fg_color="transparent",
-            scrollbar_button_color=T.BG_HOVER
+        # Treeview 스타일
+        style = ttk.Style()
+        style.configure("Send.Treeview",
+                         background="#1c2333", foreground="#e6edf3",
+                         fieldbackground="#1c2333", borderwidth=0,
+                         font=(T.get_font_family(), 10), rowheight=28)
+        style.configure("Send.Treeview.Heading",
+                         background="#2d333b", foreground="#e6edf3",
+                         font=(T.get_font_family(), 9, "bold"), borderwidth=0)
+        style.map("Send.Treeview",
+                   background=[("selected", "#2f81f7")],
+                   foreground=[("selected", "#ffffff")])
+
+        # 연락처 Treeview (다중 선택)
+        tree_frame = tk.Frame(left_card, bg="#1c2333")
+        tree_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        send_cols = ("name", "category", "phone")
+        self.send_tree = ttk.Treeview(
+            tree_frame, columns=send_cols, show="headings",
+            selectmode="extended", style="Send.Treeview"
         )
-        self.contact_list_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        self.send_tree.heading("name", text="이름", anchor="w")
+        self.send_tree.heading("category", text="카테고리", anchor="w")
+        self.send_tree.heading("phone", text="전화번호", anchor="w")
+        self.send_tree.column("name", width=80, minwidth=60)
+        self.send_tree.column("category", width=60, minwidth=50)
+        self.send_tree.column("phone", width=110, minwidth=80)
+
+        sb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.send_tree.yview)
+        self.send_tree.configure(yscrollcommand=sb.set)
+        self.send_tree.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+
+        # 선택 변경 이벤트
+        self.send_tree.bind("<<TreeviewSelect>>", lambda e: self._update_selected_count())
+        self._send_tree_id_map = {}  # iid → contact_id
 
         # ═══ 우측: 메시지 작성 ═══
         right_card = ctk.CTkFrame(top_frame, fg_color=T.BG_CARD,
@@ -441,13 +474,18 @@ class SendPage(ctk.CTkFrame):
         self._refresh_contact_list()
 
     def _refresh_contact_list(self):
-        """연락처 리스트 (체크박스) 갱신"""
-        for w in self.contact_list_frame.winfo_children():
-            w.destroy()
-        self.contact_checkboxes.clear()
+        """연락처 Treeview 갱신 (즉시 로드)"""
+        for item in self.send_tree.get_children():
+            self.send_tree.delete(item)
+        self._send_tree_id_map.clear()
 
         search = self.contact_search.get().strip().lower()
         category = self.cat_filter_var.get()
+
+        cat_label_map = {
+            "friend": "친구", "family": "가족", "business": "사업체",
+            "vip": "VIP", "other": "기타", "미지정": "미지정"
+        }
 
         if self.orchestrator:
             contacts = self.orchestrator.contact_mgr.get_by_category(category)
@@ -459,94 +497,43 @@ class SendPage(ctk.CTkFrame):
                     or search in c.memo.lower()
                     or search in c.category.lower()
                 ]
-                for c in contacts:
-                    self.selected_ids.add(c.id)
 
-            for contact in contacts:
-                is_selected = contact.id in self.selected_ids
-                self._create_contact_checkbox_row(
-                    contact.id, contact.name, contact.category,
-                    getattr(contact, 'phone', ''), contact.company,
-                    contact.send_count, is_selected
-                )
+            select_iids = []
+            for contact in reversed(contacts):
+                cat_text = cat_label_map.get(contact.category, contact.category)
+                iid = self.send_tree.insert("", "end", values=(
+                    contact.name, cat_text, contact.phone or ""
+                ))
+                self._send_tree_id_map[iid] = contact.id
+                if contact.id in self.selected_ids:
+                    select_iids.append(iid)
 
-        self._update_selected_count()
+            # 이전 선택 상태 복원
+            if select_iids:
+                self.send_tree.selection_set(select_iids)
 
-    def _create_contact_checkbox_row(self, cid, name, category, phone, company, send_count, is_selected):
-        """연락처 체크박스 행 생성"""
-        row = ctk.CTkFrame(
-            self.contact_list_frame,
-            fg_color=T.BG_INPUT if not is_selected else T.BG_HOVER,
-            corner_radius=4, height=40
-        )
-        row.pack(fill="x", pady=1)
-        row.pack_propagate(False)
-
-        cb_var = ctk.BooleanVar(value=is_selected)
-        cb = ctk.CTkCheckBox(
-            row, text="", width=20, height=20,
-            fg_color=T.ACCENT, hover_color=T.ACCENT_HOVER,
-            border_color=T.BORDER, variable=cb_var,
-            command=lambda var=cb_var: self._toggle_contact(cid, var)
-        )
-        cb.pack(side="left", padx=(8, 4))
-        self.contact_checkboxes[cid] = cb
-
-        cat_color = T.CATEGORY_COLORS.get(category, T.TEXT_MUTED)
-        ctk.CTkLabel(
-            row, text=f" {category} ",
-            font=(T.get_font_family(), 8, "bold"),
-            fg_color=cat_color, text_color=T.BG_DARK, corner_radius=3
-        ).pack(side="left", padx=(0, 6))
-
-        ctk.CTkLabel(
-            row, text=name,
-            font=(T.get_font_family(), T.FONT_SIZE_SMALL, "bold"),
-            text_color=T.TEXT_PRIMARY
-        ).pack(side="left", padx=(0, 4))
-
-        if phone:
-            ctk.CTkLabel(
-                row, text=phone,
-                font=(T.get_font_family(), 9), text_color=T.INFO
-            ).pack(side="left", padx=(0, 6))
-
-        if company:
-            ctk.CTkLabel(
-                row, text=company,
-                font=(T.get_font_family(), 9), text_color=T.TEXT_MUTED
-            ).pack(side="left", padx=(0, 4))
-
-        if send_count and send_count > 0:
-            ctk.CTkLabel(
-                row, text=f"({send_count}회)",
-                font=(T.get_font_family(), 9), text_color=T.TEXT_MUTED
-            ).pack(side="right", padx=(0, 8))
-
-    def _toggle_contact(self, contact_id, var):
-        if var.get():
-            self.selected_ids.add(contact_id)
-        else:
-            self.selected_ids.discard(contact_id)
         self._update_selected_count()
 
     def _select_all(self):
         """현재 보이는 목록 전체 선택"""
-        for cid, cb in self.contact_checkboxes.items():
-            cb.select()
-            self.selected_ids.add(cid)
+        all_items = self.send_tree.get_children()
+        if all_items:
+            self.send_tree.selection_set(all_items)
+        self.selected_ids = set(self._send_tree_id_map.get(iid) for iid in all_items)
         self._update_selected_count()
 
     def _deselect_all(self):
         """전체 해제"""
-        for cid, cb in self.contact_checkboxes.items():
-            cb.deselect()
-            self.selected_ids.discard(cid)
+        self.send_tree.selection_remove(*self.send_tree.get_children())
+        self.selected_ids.clear()
         self._update_selected_count()
 
     def _update_selected_count(self):
-        total = len(self.contact_checkboxes)
-        selected = len(self.selected_ids)
+        sel = self.send_tree.selection()
+        # 선택 상태를 selected_ids에 동기화
+        self.selected_ids = set(self._send_tree_id_map.get(iid) for iid in sel if iid in self._send_tree_id_map)
+        total = len(self.send_tree.get_children())
+        selected = len(sel)
         self.selected_count_label.configure(text=f"{selected}명 선택 / {total}명")
 
     # ═══ 메시지 / 템플릿 ═══

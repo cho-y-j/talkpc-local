@@ -150,29 +150,35 @@ class SendPage(ctk.CTkFrame):
                    background=[("selected", "#2f81f7")],
                    foreground=[("selected", "#ffffff")])
 
-        # 연락처 Treeview (다중 선택)
+        # 연락처 Treeview (체크박스 + 이름 + 카테고리 + 전화번호)
         tree_frame = tk.Frame(left_card, bg="#1c2333")
         tree_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
-        send_cols = ("name", "category", "phone")
+        send_cols = ("check", "name", "category", "phone")
         self.send_tree = ttk.Treeview(
             tree_frame, columns=send_cols, show="headings",
-            selectmode="extended", style="Send.Treeview"
+            selectmode="none", style="Send.Treeview"
         )
+        self.send_tree.heading("check", text="V", anchor="center")
         self.send_tree.heading("name", text="이름", anchor="w")
         self.send_tree.heading("category", text="카테고리", anchor="w")
         self.send_tree.heading("phone", text="전화번호", anchor="w")
+        self.send_tree.column("check", width=30, minwidth=30, stretch=False)
         self.send_tree.column("name", width=80, minwidth=60)
         self.send_tree.column("category", width=60, minwidth=50)
-        self.send_tree.column("phone", width=110, minwidth=80)
+        self.send_tree.column("phone", width=100, minwidth=80)
+
+        # 체크된 항목 태그 (배경색 변경)
+        self.send_tree.tag_configure("checked", background="#1a3a2a", foreground="#3fb950")
+        self.send_tree.tag_configure("unchecked", background="#1c2333", foreground="#e6edf3")
 
         sb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.send_tree.yview)
         self.send_tree.configure(yscrollcommand=sb.set)
         self.send_tree.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
 
-        # 선택 변경 이벤트
-        self.send_tree.bind("<<TreeviewSelect>>", lambda e: self._update_selected_count())
+        # 클릭 → 체크 토글
+        self.send_tree.bind("<Button-1>", self._on_tree_click_toggle)
         self._send_tree_id_map = {}  # iid → contact_id
 
         # ═══ 우측: 메시지 작성 ═══
@@ -474,7 +480,7 @@ class SendPage(ctk.CTkFrame):
         self._refresh_contact_list()
 
     def _refresh_contact_list(self):
-        """연락처 Treeview 갱신 (즉시 로드)"""
+        """연락처 Treeview 갱신 (체크박스 + 즉시 로드)"""
         for item in self.send_tree.get_children():
             self.send_tree.delete(item)
         self._send_tree_id_map.clear()
@@ -498,42 +504,58 @@ class SendPage(ctk.CTkFrame):
                     or search in c.category.lower()
                 ]
 
-            select_iids = []
             for contact in reversed(contacts):
+                is_checked = contact.id in self.selected_ids
+                check_mark = "V" if is_checked else ""
+                tag = "checked" if is_checked else "unchecked"
                 cat_text = cat_label_map.get(contact.category, contact.category)
                 iid = self.send_tree.insert("", "end", values=(
-                    contact.name, cat_text, contact.phone or ""
-                ))
+                    check_mark, contact.name, cat_text, contact.phone or ""
+                ), tags=(tag,))
                 self._send_tree_id_map[iid] = contact.id
-                if contact.id in self.selected_ids:
-                    select_iids.append(iid)
 
-            # 이전 선택 상태 복원
-            if select_iids:
-                self.send_tree.selection_set(select_iids)
+        self._update_selected_count()
 
+    def _on_tree_click_toggle(self, event):
+        """Treeview 행 클릭 → 체크 토글"""
+        iid = self.send_tree.identify_row(event.y)
+        if not iid:
+            return
+        cid = self._send_tree_id_map.get(iid)
+        if not cid:
+            return
+        # 토글
+        if cid in self.selected_ids:
+            self.selected_ids.discard(cid)
+            self.send_tree.set(iid, "check", "")
+            self.send_tree.item(iid, tags=("unchecked",))
+        else:
+            self.selected_ids.add(cid)
+            self.send_tree.set(iid, "check", "V")
+            self.send_tree.item(iid, tags=("checked",))
         self._update_selected_count()
 
     def _select_all(self):
         """현재 보이는 목록 전체 선택"""
-        all_items = self.send_tree.get_children()
-        if all_items:
-            self.send_tree.selection_set(all_items)
-        self.selected_ids = set(self._send_tree_id_map.get(iid) for iid in all_items)
+        for iid in self.send_tree.get_children():
+            cid = self._send_tree_id_map.get(iid)
+            if cid:
+                self.selected_ids.add(cid)
+            self.send_tree.set(iid, "check", "V")
+            self.send_tree.item(iid, tags=("checked",))
         self._update_selected_count()
 
     def _deselect_all(self):
         """전체 해제"""
-        self.send_tree.selection_remove(*self.send_tree.get_children())
+        for iid in self.send_tree.get_children():
+            self.send_tree.set(iid, "check", "")
+            self.send_tree.item(iid, tags=("unchecked",))
         self.selected_ids.clear()
         self._update_selected_count()
 
     def _update_selected_count(self):
-        sel = self.send_tree.selection()
-        # 선택 상태를 selected_ids에 동기화
-        self.selected_ids = set(self._send_tree_id_map.get(iid) for iid in sel if iid in self._send_tree_id_map)
         total = len(self.send_tree.get_children())
-        selected = len(sel)
+        selected = len(self.selected_ids)
         self.selected_count_label.configure(text=f"{selected}명 선택 / {total}명")
 
     # ═══ 메시지 / 템플릿 ═══

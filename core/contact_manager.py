@@ -115,16 +115,25 @@ class ContactManager:
         self.save()
         return True
 
-    def update(self, contact_id: str, **kwargs) -> bool:
+    def update(self, contact_id: str, save=True, **kwargs) -> bool:
         """연락처 수정"""
         for c in self.contacts:
             if c.id == contact_id:
                 for key, value in kwargs.items():
                     if hasattr(c, key):
                         setattr(c, key, value)
-                self.save()
+                if save:
+                    self.save()
                 return True
         return False
+
+    def batch_update_category(self, contact_ids: list, category: str):
+        """여러 연락처 카테고리 일괄 변경 (한 번만 저장)"""
+        id_set = set(contact_ids)
+        for c in self.contacts:
+            if c.id in id_set:
+                c.category = category
+        self.save()
 
     def delete(self, contact_id: str) -> bool:
         """연락처 삭제"""

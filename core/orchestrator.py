@@ -414,9 +414,11 @@ class Orchestrator:
             self.report.add_result(result_dict)
             self._emit_result(result_dict)
 
+            is_success = False
             if result.status == SendResult.SUCCESS:
                 self.contact_mgr.mark_sent(contact.id)
                 self._emit_log(f"  {contact.name} 발송 성공!", "success")
+                is_success = True
             elif result.status == SendResult.FAILED_SAFETY:
                 self._emit_log(f"  {contact.name}: {result.detail}", "error")
                 break
@@ -431,8 +433,8 @@ class Orchestrator:
             if self.sender._stop_flag:
                 break
 
-            # 마지막이 아니면 딜레이
-            if self.current_index < self.total_count:
+            # 마지막이 아니면 딜레이 (성공 시만 — 실패 시 즉시 다음)
+            if self.current_index < self.total_count and is_success:
                 # N명마다 긴 휴식 (계정 보호)
                 if self.sender.should_rest():
                     rest = self.sender.take_rest()

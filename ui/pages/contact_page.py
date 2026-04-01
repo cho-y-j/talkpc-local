@@ -366,10 +366,8 @@ class ContactPage(ctk.CTkFrame):
             return
 
         if self.orchestrator:
-            for iid in sel:
-                cid = self._tree_id_map.get(iid)
-                if cid:
-                    self.orchestrator.contact_mgr.update(cid, category=new_category)
+            cids = [self._tree_id_map[iid] for iid in sel if iid in self._tree_id_map]
+            self.orchestrator.contact_mgr.batch_update_category(cids, new_category)
 
         self.move_cat_var.set("이동할 카테고리")
         self._refresh_category_buttons()

@@ -678,9 +678,9 @@ class SendPage(ctk.CTkFrame):
             threading.Thread(target=_init_kakao, daemon=True).start()
             return  # 스레드에서 완료 후 _start_send 재호출
 
-        # sender 있으면 정상 진행 - 연락처 가져오기
+        # sender 있으면 정상 진행 - 연락처 가져오기 (화면 표시 순서 = 최신순)
         selected_contacts = [
-            c for c in self.orchestrator.contact_mgr.get_all()
+            c for c in reversed(self.orchestrator.contact_mgr.get_all())
             if c.id in self.selected_ids
         ]
         if not selected_contacts:

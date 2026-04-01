@@ -797,7 +797,20 @@ class KakaoSender:
                         time.sleep(1.0)
 
             if not verified:
+                # 실패: 검색창 텍스트 지우고 검색 모드 닫기
+                _debug_log(f"OCR 검증 최종 실패: '{name}' → 검색창 정리")
+                try:
+                    coord = self.coords.get("search_input", {})
+                    self._safe_click(coord["x"], coord["y"])
+                    self._human_delay(0.2, 0.4)
+                    self._safe_clear_input()
+                    self._human_delay(0.2, 0.4)
+                except Exception:
+                    pass
                 self._safe_press("escape")
+                self._human_delay(0.3, 0.6)
+                # send_count 증가시켜 다음 검색에서 기존 텍스트 삭제 보장
+                self._send_count += 1
                 return SendResult(
                     name, SendResult.FAILED_NOT_FOUND,
                     detail=f"검색 결과에서 '{name}'을 찾을 수 없음"
@@ -834,12 +847,19 @@ class KakaoSender:
                 detail=f"안전 정지: {e}"
             )
         except Exception as e:
-            # 기타 에러 → 실패 처리하고 다음으로 계속 진행 (멈추지 않음)
+            # 기타 에러 → 검색창 정리 후 다음으로 계속 진행
             _debug_log(f"[ERROR] {name} 발송 중 에러 (계속 진행): {e}")
             try:
+                coord = self.coords.get("search_input", {})
+                if coord and "x" in coord:
+                    self._safe_click(coord["x"], coord["y"])
+                    time.sleep(0.3)
+                    self._safe_clear_input()
+                    time.sleep(0.3)
                 self._safe_press("escape")
             except Exception:
                 pass
+            self._send_count += 1
             return SendResult(
                 name, SendResult.FAILED_SEND,
                 detail=f"발송 실패: {str(e)}"

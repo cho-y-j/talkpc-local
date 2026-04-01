@@ -1306,8 +1306,14 @@ class SettingsPage(ctk.CTkFrame):
         }
         # 발송기에 즉시 반영
         if self.orchestrator and self.orchestrator.sender:
+            sd = config["sending"]
             ad = config["anti_detect"]
             s = self.orchestrator.sender
+            # 발송 간 딜레이
+            s.delay_min = sd["delay_min"]
+            s.delay_max = sd["delay_max"]
+            s.retry_count = sd["retry_count"]
+            # 계정 보호
             s.action_delay_min = ad["action_delay_min"]
             s.action_delay_max = ad["action_delay_max"]
             s.rest_every = ad["rest_every"]
